@@ -26,6 +26,7 @@ import {
   Mic,
   Image as ImageIcon,
   Settings,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -56,6 +57,8 @@ export default function ChatsShell() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
+  const [people, setPeople] = useState<Array<{ id: string; email: string; display_name: string | null; avatar_url: string | null }>>([]);
+  const [searching, setSearching] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { typingUserIds, sendTyping } = useTyping(activeConversationId, userId);
@@ -68,6 +71,10 @@ export default function ChatsShell() {
       const supabase = supabaseBrowser();
       const { data: userData } = await supabase.auth.getUser();
       setUserId(userData.user?.id ?? null);
+      if (userData.user) {
+        // ensure profile exists for search
+        await supabase.from("profiles").upsert({ id: userData.user.id, email: userData.user.email });
+      }
       const { data } = await supabase
         .from("conversation_participants")
         .select("conversation_id, conversations(id, type, group_id)");
@@ -113,6 +120,81 @@ export default function ChatsShell() {
     if (!activeConversationId || content.length === 0) return;
     setDraft("");
     await supabaseBrowser().from("messages").insert({ conversation_id: activeConversationId, content });
+  }
+
+  // Search people by email/display_name
+  useEffect(() => {
+    if (!search || search.trim().length < 2) {
+      setPeople([]);
+      return;
+    }
+    const handler = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const supabase = supabaseBrowser();
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, email, display_name, avatar_url")
+          .or(`email.ilike.%${search}%,display_name.ilike.%${search}%`)
+          .limit(10);
+        if (error) throw error;
+        const current = userId;
+        setPeople((data || []).filter((p) => p.id !== current) as any);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search, userId]);
+
+  async function openDirectWith(user: { id: string }) {
+    if (!userId) return;
+    const supabase = supabaseBrowser();
+    // find any existing direct conversation between both users
+    try {
+      const { data: myConvos } = await supabase
+        .from("conversation_participants")
+        .select("conversation_id")
+        .eq("user_id", userId);
+      const ids = (myConvos || []).map((r: any) => r.conversation_id);
+      if (ids.length) {
+        const { data: overlap } = await supabase
+          .from("conversation_participants")
+          .select("conversation_id, conversations(type)")
+          .eq("user_id", user.id)
+          .in("conversation_id", ids)
+          .eq("conversations.type", "direct");
+        const found = (overlap || [])[0];
+        if (found) {
+          setActiveConversationId(found.conversation_id);
+          setPeople([]);
+          setSearch("");
+          return;
+        }
+      }
+      // create a new direct conversation
+      const { data: convIns, error: convErr } = await supabase
+        .from("conversations")
+        .insert({ type: "direct", created_by: userId })
+        .select("id")
+        .single();
+      if (convErr) throw convErr;
+      const convId = convIns.id as string;
+      const { error: partErr } = await supabase.from("conversation_participants").insert([
+        { conversation_id: convId, user_id: userId, role: "member" },
+        { conversation_id: convId, user_id: user.id, role: "member" },
+      ]);
+      if (partErr) throw partErr;
+      setConversations((prev) => [{ id: convId, type: "direct", group_id: null }, ...prev]);
+      setActiveConversationId(convId);
+      setPeople([]);
+      setSearch("");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to start chat");
+    }
   }
 
   async function handleFileUpload(file: File) {
@@ -169,19 +251,36 @@ export default function ChatsShell() {
             </button>
           </div>
         </div>
-        <div className="px-3">
+        <div className="px-3 space-y-1">
           <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Settings">
             <Settings size={18} />
             <span className="text-sm">Settings</span>
           </button>
+          <a href="/logout" className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Logout">
+            <LogOut size={18} />
+            <span className="text-sm">Logout</span>
+          </a>
         </div>
       </div>
 
       {/* Chat list column */}
       <aside className="hidden md:flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-white/60 dark:bg-black/30 backdrop-blur p-3">
-        <div className="flex items-center gap-2">
-          <Input placeholder="Search Messenger..." value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-xl" />
+        <div className="flex items-center gap-2 relative">
+          <Input placeholder="Search people by email or name..." value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-xl" />
           <Button variant="outline" className="px-3 rounded-xl"><Search size={18} /></Button>
+          {people.length > 0 && (
+            <div className="absolute left-0 right-0 top-11 z-20 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-lg overflow-hidden">
+              {people.map((p) => (
+                <button key={p.id} onClick={() => openDirectWith(p)} className="w-full flex items-center gap-3 px-3 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-900">
+                  <Avatar src={p.avatar_url} alt={p.display_name || p.email} />
+                  <div className="text-left">
+                    <div className="text-sm font-medium">{p.display_name || p.email.split("@")[0]}</div>
+                    <div className="text-xs text-neutral-500">{p.email}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 mt-3">
           <Button variant="outline" className="rounded-xl"><MessageSquare className="mr-2" size={16} /> Chat New</Button>

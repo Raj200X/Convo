@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -10,6 +10,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const otpRef = useRef<HTMLInputElement>(null);
 
   // If user comes back via magic link (#access_token=...), process it and redirect
   useEffect(() => {
@@ -49,17 +53,35 @@ export default function LoginPage() {
       const { error: err } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          // Email OTP: ensure it's enabled in Supabase Auth settings
-          emailRedirectTo: typeof window !== "undefined" ? window.location.origin + "/login" : undefined,
+          // For OTP mode, the email template sends a code. No redirect needed.
         },
       });
       if (err) throw err;
       setSent(true);
+      setTimeout(() => otpRef.current?.focus(), 200);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to send OTP";
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!email || !otp) return;
+    setVerifying(true);
+    setVerifyMsg(null);
+    try {
+      const supabase = supabaseBrowser();
+      const { error } = await supabase.auth.verifyOtp({ email, token: otp, type: "email" });
+      if (error) throw new Error(error.message);
+      setVerifyMsg("Verified! Redirecting...");
+      window.location.href = "/";
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Invalid code";
+      setVerifyMsg(message);
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -79,7 +101,27 @@ export default function LoginPage() {
             {loading ? "Sending..." : sent ? "Resend OTP" : "Send OTP"}
           </Button>
           {error && <p className="text-sm text-red-600">{error}</p>}
-          {sent && <p className="text-sm text-green-700">Check your inbox for the OTP code.</p>}
+          <div
+            className="transition-all duration-300 overflow-hidden"
+            style={{ maxHeight: sent ? 160 : 0, opacity: sent ? 1 : 0 }}
+          >
+            <div className="mt-2 space-y-3">
+              <Input
+                ref={otpRef}
+                inputMode="numeric"
+                placeholder="Enter the 6-digit OTP"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+              />
+              <Button disabled={verifying || !otp} onClick={handleVerify} className="w-full">
+                {verifying ? "Verifying..." : "Verify"}
+              </Button>
+              {verifyMsg && (
+                <p className="text-sm {verifyMsg.includes('Verified') ? 'text-green-700' : 'text-red-600'}">{verifyMsg}</p>
+              )}
+              <p className="text-xs text-neutral-500">We sent the code to {email}. Check your inbox and spam folder.</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
