@@ -16,9 +16,6 @@ import {
   File as FileIcon,
   MessageSquare,
   Users,
-  ShoppingBag,
-  MailQuestion,
-  Archive,
   Phone,
   Video,
   MoreVertical,
@@ -29,7 +26,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
+// import Link from "next/link";
 import TypingIndicator from "@/components/chats/typing-indicator";
 import { useTyping } from "@/hooks/useTyping";
 
@@ -139,7 +136,8 @@ export default function ChatsShell() {
           .limit(10);
         if (error) throw error;
         const current = userId;
-        setPeople((data || []).filter((p) => p.id !== current) as any);
+        type Person = { id: string; email: string; display_name: string | null; avatar_url: string | null };
+        setPeople(((data || []) as Person[]).filter((p) => p.id !== current));
       } catch (e) {
         console.error(e);
       } finally {
@@ -158,20 +156,32 @@ export default function ChatsShell() {
         .from("conversation_participants")
         .select("conversation_id")
         .eq("user_id", userId);
-      const ids = (myConvos || []).map((r: any) => r.conversation_id);
+      type IdRow = { conversation_id: string };
+      const ids = ((myConvos || []) as IdRow[]).map((r) => r.conversation_id);
       if (ids.length) {
+        // Step 1: find overlapping conversations with the other user
         const { data: overlap } = await supabase
           .from("conversation_participants")
-          .select("conversation_id, conversations(type)")
+          .select("conversation_id")
           .eq("user_id", user.id)
-          .in("conversation_id", ids)
-          .eq("conversations.type", "direct");
-        const found = (overlap || [])[0];
-        if (found) {
-          setActiveConversationId(found.conversation_id);
-          setPeople([]);
-          setSearch("");
-          return;
+          .in("conversation_id", ids);
+        type Overlap = { conversation_id: string };
+        const overlapIds = ((overlap || []) as Overlap[]).map((o) => o.conversation_id);
+        // Step 2: among overlapping, find a direct conversation if any
+        if (overlapIds.length) {
+          const { data: direct } = await supabase
+            .from("conversations")
+            .select("id")
+            .in("id", overlapIds)
+            .eq("type", "direct")
+            .limit(1);
+          const foundId = direct?.[0]?.id as string | undefined;
+          if (foundId) {
+            setActiveConversationId(foundId);
+            setPeople([]);
+            setSearch("");
+            return;
+          }
         }
       }
       // create a new direct conversation
