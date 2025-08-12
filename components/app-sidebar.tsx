@@ -361,12 +361,12 @@ export function AppSidebar() {
                         if (isMobile) setOpen(false)
                       }}
                     >
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
-                        <AvatarFallback className="rounded-lg">
-                          {conv.isGroup ? "G" : conv.name.charAt(0)}
-                        </AvatarFallback>
-                      </Avatar>
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
+                          <AvatarFallback className="rounded-lg">
+                            {(conv.name || conv.email || "?").charAt(0)}
+                          </AvatarFallback>
+                        </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-sm font-medium truncate">{conv.name || conv.email || ''}</div>
