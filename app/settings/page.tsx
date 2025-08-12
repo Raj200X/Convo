@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Avatar } from "@/components/ui/avatar";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 export default function SettingsPage() {
   const supabaseRef = useRef<ReturnType<typeof supabaseBrowser> | null>(null);
@@ -56,7 +56,10 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Profile</h1>
       <div className="flex items-center gap-4">
-        <Avatar src={avatarUrl} alt="Avatar" className="h-16 w-16" />
+        <Avatar className="h-16 w-16">
+          <AvatarImage src={avatarUrl || undefined} alt="Avatar" />
+          <AvatarFallback>U</AvatarFallback>
+        </Avatar>
         <label className="text-sm underline cursor-pointer">
           Change avatar
           <input type="file" className="hidden" onChange={(e) => e.target.files && onAvatarChange(e.target.files[0])} />
