@@ -156,7 +156,7 @@ export function AppSidebar() {
     return ()=>clearTimeout(t)
   },[searchQuery, supabase])
 
-  async function startDirectWith(person:{id:string}){
+  async function startDirectWith(person:{id:string; email:string; display_name:string|null; avatar_url:string|null}){
     if (!userId) return
     // find existing
     const { data: my } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', userId)
