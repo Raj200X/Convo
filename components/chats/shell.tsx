@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import Image from "next/image";
-import { Avatar } from "@/components/ui/avatar";
+// Removed next/image; not used
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import TextareaAutosize from "react-textarea-autosize";
@@ -23,12 +23,26 @@ import {
   Mic,
   Image as ImageIcon,
   Settings,
-  LogOut,
+      LogOut,
+      Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 // import Link from "next/link";
 import TypingIndicator from "@/components/chats/typing-indicator";
 import { useTyping } from "@/hooks/useTyping";
+import ThemeToggle from "@/components/ui/theme-toggle";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { AnimatePresence, motion } from "framer-motion";
+  import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+  } from "@/components/ui/dropdown-menu";
+// removed resizable
 
 type Message = {
   id: string;
@@ -39,6 +53,7 @@ type Message = {
   file_name: string | null;
   file_size_bytes: number | null;
   created_at: string;
+  isNew?: boolean; // For animation tracking
 };
 
 type Conversation = {
@@ -55,17 +70,58 @@ export default function ChatsShell() {
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [people, setPeople] = useState<Array<{ id: string; email: string; display_name: string | null; avatar_url: string | null }>>([]);
-  const [searching, setSearching] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [reactions, setReactions] = useState<Record<string, Record<string, string[]>>>({});
+  const QUICK_EMOJIS = ["👍","❤️","😂","😮","😢","🙌"];
+  const [headerTitle, setHeaderTitle] = useState<string>("Conversation");
+
+  function toggleReaction(messageId: string, emoji: string) {
+    if (!userId) return;
+    setReactions(prev => {
+      const next: Record<string, Record<string, string[]>> = { ...prev };
+      const msgMap = { ...(next[messageId] || {}) };
+      const arr = [...(msgMap[emoji] || [])];
+      const idx = arr.indexOf(userId);
+      if (idx >= 0) arr.splice(idx, 1); else arr.push(userId);
+      msgMap[emoji] = arr;
+      next[messageId] = msgMap;
+      return next;
+    });
+    setMenuOpenId(null);
+  }
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const { typingUserIds, sendTyping } = useTyping(activeConversationId, userId);
   const [showDetails, setShowDetails] = useState(false);
+  const supabase = useMemo(() => supabaseBrowser(), []);
+
+  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // pick up active conversation from localStorage (set by sidebar)
+  useEffect(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('activeConversationId') : null;
+    if (stored) setActiveConversationId(stored);
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'activeConversationId' && e.newValue) setActiveConversationId(e.newValue);
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   // Resolve user id and load user's conversations
   useEffect(() => {
-    let sub: ReturnType<ReturnType<typeof supabaseBrowser>['channel']> | null = null;
+    let sub: unknown = null;
     (async () => {
-      const supabase = supabaseBrowser();
       const { data: userData } = await supabase.auth.getUser();
       setUserId(userData.user?.id ?? null);
       if (userData.user) {
@@ -77,46 +133,143 @@ export default function ChatsShell() {
         .select("conversation_id, conversations(id, type, group_id)");
       type ParticipantRow = { conversation_id: string; conversations: Conversation };
       const convs = (data as ParticipantRow[] | null)?.map((row) => row.conversations) ?? [];
-      setConversations(convs);
-      if (convs.length && !activeConversationId) setActiveConversationId(convs[0].id);
+      
+      // Remove duplicates based on ID
+      const uniqueConvs = convs.filter((conv, index, self) => 
+        index === self.findIndex(c => c.id === conv.id)
+      );
+      
+      console.log("Loaded conversations:", uniqueConvs);
+      setConversations(uniqueConvs);
+      if (uniqueConvs.length && !activeConversationId) setActiveConversationId(uniqueConvs[0].id);
 
       // realtime on messages
-      sub = supabase
-        .channel(`messages`)
+        sub = supabase
+          .channel(`messages:${activeConversationId ?? 'all'}`)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
           const newMsg = payload.new as Message;
           if (newMsg.conversation_id === activeConversationId) {
-            setMessages((m) => [...m, newMsg]);
+            setMessages((m) => {
+              // Check if message already exists to prevent duplicates
+              const exists = m.some(msg => msg.id === newMsg.id);
+              if (!exists) {
+                // Mark new message for animation
+                const messageWithAnimation = { ...newMsg, isNew: true };
+                return [...m, messageWithAnimation];
+              }
+              return m;
+            });
           }
         })
         .subscribe();
     })();
     return () => {
-      if (sub) supabaseBrowser().removeChannel(sub);
+      if (sub) supabase.removeChannel(sub as any);
     };
-  }, [activeConversationId]);
+  }, [activeConversationId, supabase]);
 
   // Load messages for active conversation
   useEffect(() => {
     if (!activeConversationId) return;
     (async () => {
-      const supabase = supabaseBrowser();
       const { data } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", activeConversationId)
         .order("created_at", { ascending: true });
-      setMessages((data as Message[]) || []);
+      if (data) {
+        // Remove duplicates and mark existing messages as not new
+        const uniqueMessages = data.filter((msg, index, self) => 
+          index === self.findIndex(m => m.id === msg.id)
+        ).map(msg => ({ ...msg, isNew: false }));
+        setMessages(uniqueMessages);
+      }
+      // Also compute header title (other user's email for direct chats)
+      const { data: conv } = await supabase.from('conversations').select('id,type').eq('id', activeConversationId).single();
+      if (conv?.type === 'direct') {
+        const { data: participants } = await supabase
+          .from('conversation_participants')
+          .select('user_id, profiles:profiles(email, display_name)')
+          .eq('conversation_id', activeConversationId);
+        const other = (participants || []).find((p: any) => p.user_id !== userId) as any;
+        const title = other?.profiles?.display_name || other?.profiles?.email || 'Direct chat';
+        setHeaderTitle(title);
+      } else {
+        setHeaderTitle('Group');
+      }
     })();
-  }, [activeConversationId]);
+    // ensure we subscribe to this conversation's inserts specifically
+    const channel = supabase
+      .channel(`conversation:${activeConversationId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${activeConversationId}` }, (payload) => {
+        const row = payload.new as Message;
+        setMessages(prev => (prev.some(m => m.id === row.id) ? prev : [...prev, { ...row, isNew: true }]));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages", filter: `conversation_id=eq.${activeConversationId}` }, (payload) => {
+        const row = payload.old as Message;
+        setMessages(prev => prev.filter(m => m.id !== row.id));
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeConversationId, supabase]);
 
   const filteredConversations = useMemo(() => conversations, [conversations]);
 
   async function sendMessage() {
     const content = draft.trim();
     if (!activeConversationId || content.length === 0) return;
+    
+    setSendingMessage(true);
+    setIsTyping(true);
+    
+    // Create optimistic message for immediate UI feedback
+    const optimisticMessage: Message = {
+      id: `temp-${Date.now()}`,
+      sender_id: userId!,
+      conversation_id: activeConversationId,
+      content,
+      file_url: null,
+      file_name: null,
+      file_size_bytes: null,
+      created_at: new Date().toISOString(),
+      isNew: true
+    };
+    
+    setMessages(prev => [...prev, optimisticMessage]);
+    // Smooth scroll and slight float animation cue
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
     setDraft("");
-    await supabaseBrowser().from("messages").insert({ conversation_id: activeConversationId, content });
+    
+    try {
+      const { data: inserted, error } = await supabase
+        .from("messages")
+        .insert({ 
+          conversation_id: activeConversationId, 
+          content,
+          sender_id: userId,
+        })
+        .select("*")
+        .single();
+      
+      if (error) throw error;
+      
+      // Replace optimistic message with the inserted row immediately
+      setMessages(prev => prev.map(msg =>
+        msg.id === optimisticMessage.id ? ({ ...(inserted as Message), isNew: false }) : msg
+      ));
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id));
+      // Could show error toast here
+    } finally {
+      setSendingMessage(false);
+      setIsTyping(false);
+    }
   }
 
   // Search people by email/display_name
@@ -126,9 +279,7 @@ export default function ChatsShell() {
       return;
     }
     const handler = setTimeout(async () => {
-      setSearching(true);
       try {
-        const supabase = supabaseBrowser();
         const { data, error } = await supabase
           .from("profiles")
           .select("id, email, display_name, avatar_url")
@@ -140,18 +291,21 @@ export default function ChatsShell() {
         setPeople(((data || []) as Person[]).filter((p) => p.id !== current));
       } catch (e) {
         console.error(e);
-      } finally {
-        setSearching(false);
       }
     }, 300);
     return () => clearTimeout(handler);
-  }, [search, userId]);
+  }, [search, userId, supabase]);
 
   async function openDirectWith(user: { id: string }) {
     if (!userId) return;
-    const supabase = supabaseBrowser();
-    // find any existing direct conversation between both users
+    
+    // Debug: Check authentication state
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    console.log("Current auth user:", authUser);
+    console.log("Component userId:", userId);
+    
     try {
+      // find any existing direct conversation between both users
       const { data: myConvos } = await supabase
         .from("conversation_participants")
         .select("conversation_id")
@@ -184,26 +338,59 @@ export default function ChatsShell() {
           }
         }
       }
+      
       // create a new direct conversation
+      console.log("Creating conversation with userId:", userId);
       const { data: convIns, error: convErr } = await supabase
         .from("conversations")
         .insert({ type: "direct", created_by: userId })
         .select("id")
         .single();
-      if (convErr) throw convErr;
-      const convId = convIns.id as string;
-      const { error: partErr } = await supabase.from("conversation_participants").insert([
-        { conversation_id: convId, user_id: userId, role: "member" },
-        { conversation_id: convId, user_id: user.id, role: "member" },
-      ]);
-      if (partErr) throw partErr;
-      setConversations((prev) => [{ id: convId, type: "direct", group_id: null }, ...prev]);
+      if (convErr) {
+        console.error("Create conversation error details:", {
+          message: convErr.message,
+          details: convErr.details,
+          hint: convErr.hint,
+          code: convErr.code
+        });
+        alert(`Create conversation failed: ${convErr.message || 'Unknown error'}`);
+        return;
+      }
+      const convId = convIns.id;
+      
+      // Insert current user first to satisfy potential RLS checks, then the peer
+      const { error: partErrSelf } = await supabase
+        .from("conversation_participants")
+        .insert({ conversation_id: convId, user_id: userId, role: "member" });
+      if (partErrSelf) {
+        console.error("Add self participant error", partErrSelf);
+        alert(`Add self failed: ${partErrSelf.message}`);
+        return;
+      }
+      
+      const { error: partErrPeer } = await supabase
+        .from("conversation_participants")
+        .insert({ conversation_id: convId, user_id: user.id, role: "member" });
+      if (partErrPeer) {
+        console.error("Add peer participant error", partErrPeer, { convId, me: userId, peer: user.id });
+        alert(`Add peer failed: ${partErrPeer.message}`);
+        return;
+      }
+      
+      // Check if conversation already exists before adding
+      setConversations((prev) => {
+        const exists = prev.some(c => c.id === convId);
+        if (!exists) {
+          return [{ id: convId, type: "direct", group_id: null }, ...prev];
+        }
+        return prev;
+      });
       setActiveConversationId(convId);
       setPeople([]);
       setSearch("");
     } catch (e) {
-      console.error(e);
-      alert("Failed to start chat");
+      console.error("Failed to start chat", e);
+      alert(`Failed to start chat: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -214,7 +401,6 @@ export default function ChatsShell() {
     }
     setUploading(true);
     try {
-      const supabase = supabaseBrowser();
       const bucket = "attachments";
       const path = `${userId ?? "anon"}/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, {
@@ -224,7 +410,14 @@ export default function ChatsShell() {
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
       await supabase
         .from("messages")
-        .insert({ conversation_id: activeConversationId, kind: file.type.startsWith("image") ? "image" : "file", file_url: urlData.publicUrl, file_name: file.name, file_size_bytes: file.size });
+        .insert({ 
+          conversation_id: activeConversationId,
+          sender_id: userId,
+          kind: file.type.startsWith("image") ? "image" : "file", 
+          file_url: urlData.publicUrl, 
+          file_name: file.name, 
+          file_size_bytes: file.size 
+        });
     } catch (e) {
       console.error(e);
     } finally {
@@ -232,197 +425,266 @@ export default function ChatsShell() {
     }
   }
 
-  // Desktop: 4 columns (nav / list / chat / details)
-  // Mobile: single column, we can expand with conditionals later
-  const gridCols = showDetails
-    ? "md:grid-cols-[200px_320px_minmax(0,1fr)_360px]"
-    : "md:grid-cols-[200px_320px_minmax(0,1fr)]";
+  async function deleteMessage(messageId: string) {
+    try {
+      // First delete from database; only then update UI
+      const { error } = await supabase
+        .from("messages")
+        .delete()
+        .match({ id: messageId, sender_id: userId });
+      if (error) {
+        console.error("Delete failed", error);
+        alert(`Could not delete message: ${error.message}`);
+        return;
+      }
+      // Remove locally
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    } catch (e) {
+      console.error(e);
+      alert("Delete failed. Please try again.");
+    } finally {
+      setMenuOpenId(null);
+    }
+  }
+
   return (
-    <div className={cn("min-h-[100svh] w-full grid grid-cols-1 bg-[linear-gradient(180deg,rgba(17,24,39,0.02),transparent)]", gridCols)}>
-      {/* Left icon rail */}
-      <div className="hidden md:flex flex-col justify-between py-4 border-r border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-black/40 backdrop-blur">
-        <div className="px-3">
-          <div className="flex items-center gap-3 px-2">
-            <Image src="/lpu-logo.png" alt="LPU" width={40} height={40} className="h-10 w-10 rounded-full object-cover" />
-            <div className="font-semibold tracking-tight">Campus</div>
-          </div>
-          <div className="mt-6 space-y-1">
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="People">
-              <Users size={18} />
-              <span className="text-sm">People</span>
-            </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Groups">
-              <Users2 size={18} />
-              <span className="text-sm">Groups</span>
-            </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Profile">
-              <MessageSquare size={18} />
-              <span className="text-sm">Profile</span>
-            </button>
-          </div>
-        </div>
-        <div className="px-3 space-y-1">
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Settings">
-            <Settings size={18} />
-            <span className="text-sm">Settings</span>
-          </button>
-          <a href="/logout" className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Logout">
-            <LogOut size={18} />
-            <span className="text-sm">Logout</span>
-          </a>
-        </div>
-      </div>
-
-      {/* Chat list column */}
-      <aside className="hidden md:flex flex-col border-r border-neutral-200 dark:border-neutral-800 bg-white/60 dark:bg-black/30 backdrop-blur p-3">
-        <div className="flex items-center gap-2 relative">
-          <Input placeholder="Search people by email or name..." value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-xl" />
-          <Button variant="outline" className="px-3 rounded-xl"><Search size={18} /></Button>
-          {people.length > 0 && (
-            <div className="absolute left-0 right-0 top-11 z-20 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-lg overflow-hidden">
-              {people.map((p) => (
-                <button key={p.id} onClick={() => openDirectWith(p)} className="w-full flex items-center gap-3 px-3 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-900">
-                  <Avatar src={p.avatar_url} alt={p.display_name || p.email} />
-                  <div className="text-left">
-                    <div className="text-sm font-medium">{p.display_name || p.email.split("@")[0]}</div>
-                    <div className="text-xs text-neutral-500">{p.email}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 mt-3">
-          <Button variant="outline" className="rounded-xl"><MessageSquare className="mr-2" size={16} /> Chat New</Button>
-          <Button variant="outline" className="rounded-xl"><Plus className="mr-2" size={16} /> New Group</Button>
-        </div>
-        <div className="mt-3 text-sm font-semibold px-2">Chats</div>
-        <div className="flex-1 overflow-y-auto mt-2 space-y-1 pr-1">
-          {filteredConversations.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => { setActiveConversationId(c.id); setShowDetails(false); }}
-              className={cn(
-                "w-full flex items-center gap-3 rounded-2xl px-3 py-3 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition",
-                activeConversationId === c.id && "bg-neutral-100 dark:bg-neutral-900"
-              )}
-            >
-              <Avatar alt={c.type === "group" ? "Group" : "Chat"} />
-              <div className="min-w-0 flex-1 text-left">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-medium truncate">{c.type === "group" ? "Group" : "Direct"}</div>
-                  <div className="text-[11px] text-neutral-500">1m</div>
+    <SidebarProvider>
+      <div className="min-h-[100svh] w-full flex">
+        {/* New shadcn Sidebar */}
+        <AppSidebar />
+        {/* Main Chat Area */}
+        <main className="flex-1 flex flex-col bg-white/70 dark:bg-black/40 backdrop-blur">
+          {activeConversationId ? (
+            <>
+              {/* Chat header */}
+              <div className="border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center gap-3">
+                <Avatar>
+                  <AvatarImage src="" alt="Chat" />
+                  <AvatarFallback>CH</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowDetails(true)} title="View profile">
+                  <div className="font-medium truncate">{headerTitle}</div>
+                  <div className="text-xs text-neutral-500">Online</div>
                 </div>
-                <div className="text-xs text-neutral-500 truncate">No recent messages</div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><Phone size={16} /></Button>
+                  <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><Video size={16} /></Button>
+                  <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><MoreVertical size={16} /></Button>
+                </div>
               </div>
-              <div className="h-6 w-6 grid place-items-center rounded-full bg-neutral-200 text-[10px]">…</div>
-            </button>
-          ))}
-        </div>
-      </aside>
 
-      {/* Chat area */}
-      <main className="flex flex-col h-full bg-white/70 dark:bg-black/40 backdrop-blur">
-        {activeConversationId ? (
-          <>
-            {/* Chat header */}
-            <div className="border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center gap-3">
-              <Avatar alt="Chat" />
-              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowDetails(true)} title="View profile">
-                <div className="font-medium truncate">Conversation</div>
-                <div className="text-xs text-neutral-500">Online</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" className="rounded-xl h-8 px-3"><Phone size={16} /></Button>
-                <Button variant="outline" className="rounded-xl h-8 px-3"><Video size={16} /></Button>
-                <Button variant="outline" className="rounded-xl h-8 px-3"><MoreVertical size={16} /></Button>
-              </div>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-2">
-              {messages.map((m, idx) => {
-                const prev = messages[idx - 1];
-                const showDay = !prev || !isSameDay(new Date(prev.created_at), new Date(m.created_at));
-                return (
-                  <div key={m.id}>
-                    {showDay && (
-                      <div className="my-5 text-center text-xs text-neutral-500">{isSameDay(new Date(), new Date(m.created_at)) ? "Today" : "Yesterday"}</div>
-                    )}
-                    <div className={cn("max-w-[72%] rounded-2xl px-3 py-2 shadow-sm", m.sender_id === userId ? "ml-auto bg-[var(--brand)] text-white" : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800")}> 
-                      {m.file_url ? (
-                        m.file_name && !m.file_url.match(/\.(png|jpe?g|gif|webp)$/i) ? (
-                          <a href={m.file_url} target="_blank" className="flex items-center gap-2 underline">
-                            <FileIcon size={16} /> {m.file_name}
-                          </a>
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={m.file_url} alt={m.file_name ?? "image"} className="rounded-md max-h-60" />
-                        )
-                      ) : null}
-                      {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
-                      <div className={cn("mt-1 text-[10px] opacity-70", m.sender_id === userId ? "text-white/80" : "text-neutral-500")}>{format(new Date(m.created_at), "p")}</div>
+              {/* Messages */}
+              <ScrollArea className="flex-1">
+                <div className="pl-4 pr-3 py-6 space-y-2">
+                <AnimatePresence initial={false}>
+                {messages.map((m, idx) => {
+                  const prev = messages[idx - 1];
+                  const showDay = !prev || !isSameDay(new Date(prev.created_at), new Date(m.created_at));
+                  const isMine = Boolean(userId && m.sender_id === userId);
+                  return (
+                    <div key={m.id}>
+                      {showDay && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="my-5 text-center text-xs text-neutral-500"
+                        >
+                          {isSameDay(new Date(), new Date(m.created_at)) ? "Today" : "Yesterday"}
+                        </motion.div>
+                      )}
+                      <div className={cn("w-full flex", isMine ? "justify-end" : "justify-start pl-4")}>
+                        <DropdownMenu open={menuOpenId === m.id} onOpenChange={(o)=>!o && setMenuOpenId(null)}>
+                          <DropdownMenuTrigger asChild>
+                            <motion.div
+                          layoutId={`msg-${m.id}`}
+                          layout
+                          initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10 }}
+                          transition={{ type: "spring", stiffness: 260, damping: 20, mass: 0.6 }}
+                          className={cn(
+                            "w-fit max-w-[72%] flex flex-col rounded-2xl px-3 py-2 shadow-sm transition-all duration-300 message-bubble",
+                            isMine
+                              ? "bg-[var(--brand)] text-white items-end mr-2 md:mr-4"
+                              : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-start ml-4"
+                          )}
+                              onContextMenu={(e)=>{ e.preventDefault(); setMenuOpenId(m.id);} }
+                            >
+                        {/* Show sender name */}
+                        <div className={cn(
+                          "text-xs mb-1 font-medium",
+                          isMine 
+                            ? "text-white/80 text-right" 
+                            : "text-neutral-500 text-left"
+                        )}>
+                          {isMine ? "You" : "Other User"}
+                        </div>
+                        {m.file_url ? (
+                          m.file_name && !m.file_url.match(/\.(png|jpe?g|gif|webp)$/i) ? (
+                            <a href={m.file_url} target="_blank" className="flex items-center gap-2 underline">
+                              <FileIcon size={16} /> {m.file_name}
+                            </a>
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={m.file_url} alt={m.file_name ?? "image"} className="rounded-md max-h-60" />
+                          )
+                        ) : null}
+                        {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
+                        <div className={cn(
+                          "mt-1 text-[10px] opacity-70", 
+                          isMine 
+                            ? "text-white/80 text-right" 
+                            : "text-neutral-500 text-left"
+                        )}>
+                          {format(new Date(m.created_at), "p")}
+                        </div>
+                            </motion.div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align={isMine ? "end" : "start"} className="w-48">
+                            {isMine ? (
+                              <>
+                                <DropdownMenuItem className="text-destructive" onClick={()=>deleteMessage(m.id)}>
+                                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={()=>setMenuOpenId(null)}>Cancel</DropdownMenuItem>
+                              </>
+                            ) : (
+                              <>
+                                <div className="px-2 py-1 text-xs text-muted-foreground">React</div>
+                                <div className="px-2 pb-2 flex items-center gap-1.5">
+                                  {QUICK_EMOJIS.map(em => (
+                                    <button
+                                      key={em}
+                                      className="h-8 w-8 rounded-full hover:bg-accent flex items-center justify-center"
+                                      onClick={()=>toggleReaction(m.id, em)}
+                                    >
+                                      <span className="text-lg leading-none">{em}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={()=>setMenuOpenId(null)}>Close</DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      {/* Reactions bar */}
+                      {reactions[m.id] && (
+                        <div className={cn("mt-1 flex gap-1", isMine ? "justify-end" : "justify-start") }>
+                          {Object.entries(reactions[m.id]).filter(([, users]) => users.length > 0).map(([emoji, users]) => (
+                            <div key={emoji} className={cn(
+                              "px-1.5 py-0.5 rounded-full text-xs border",
+                              isMine ? "bg-[var(--brand-600)]/20 text-white border-white/20" : "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700"
+                            )}>
+                              <span className="mr-1 align-middle">{emoji}</span>
+                              <span className="align-middle">{users.length}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                </AnimatePresence>
+                {/* Typing indicator */}
+                {isTyping && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[72%] rounded-2xl px-3 py-2 bg-neutral-100 dark:bg-neutral-800 animate-in slide-in-from-bottom-2 duration-300">
+                      <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                        <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                )}
+                
+                {/* Scroll anchor */}
+                <div ref={messagesEndRef} />
+                </div>
+              </ScrollArea>
 
-            {/* Composer */}
-            <div className="border-t border-neutral-200 dark:border-neutral-800 p-2">
-              <div className="flex items-end gap-2">
-                <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900" onClick={() => fileInputRef.current?.click()} aria-label="Attach">
-                  <Paperclip size={18} />
-                </button>
-                <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Emoji"><Smile size={18} /></button>
-                <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Image"><ImageIcon size={18} /></button>
-                <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900" aria-label="Mic"><Mic size={18} /></button>
-                <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])} />
-                <TextareaAutosize
-                  value={draft}
-                  onChange={(e) => {
-                    setDraft(e.target.value);
-                    sendTyping();
-                  }}
-                  minRows={1}
-                  maxRows={6}
-                  className="w-full resize-none rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-sm outline-none"
-                  placeholder="Write something.."
-                />
-                <Button onClick={sendMessage} disabled={!draft.trim() || uploading} className="h-10 px-4 rounded-2xl">
-                  <Send size={16} />
-                </Button>
+              {/* Composer */}
+              <div className="border-t border-neutral-200 dark:border-neutral-800 p-2">
+                <div className="flex items-end gap-2">
+                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" onClick={() => fileInputRef.current?.click()} aria-label="Attach">
+                    <Paperclip size={18} />
+                  </button>
+                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Emoji"><Smile size={18} /></button>
+                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Image"><ImageIcon size={18} /></button>
+                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Mic"><Mic size={18} /></button>
+                  <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])} />
+                   <TextareaAutosize
+                    value={draft}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      sendTyping();
+                    }}
+                    minRows={1}
+                    maxRows={6}
+                     className="w-full resize-none rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-sm outline-none transition-all duration-300 focus:scale-105 focus:border-[var(--brand)] focus:shadow-lg focus-ring"
+                    placeholder="Write something.."
+                  />
+                  <Button 
+                    onClick={sendMessage} 
+                    disabled={!draft.trim() || uploading || sendingMessage} 
+                    className="h-10 px-4 rounded-2xl bg-[var(--brand)] hover:bg-[var(--brand-600)] text-white transition-all duration-300 hover:scale-105 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 disabled:shadow-none"
+                  >
+                     <motion.div
+                       initial={{ scale: 1 }}
+                       animate={sendingMessage ? { scale: 0.9, opacity: 0.7 } : { scale: 1, opacity: 1 }}
+                       transition={{ duration: 0.15 }}
+                     >
+                       {sendingMessage ? (
+                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                       ) : (
+                         <Send size={16} />
+                       )}
+                     </motion.div>
+                  </Button>
+                </div>
+                <TypingIndicator visible={typingUserIds.size > 0} />
               </div>
-              <TypingIndicator visible={typingUserIds.size > 0} />
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 grid place-items-center text-neutral-500">Select a conversation</div>
-        )}
-      </main>
+            </>
+          ) : (
+            <div className="flex-1 grid place-items-center text-neutral-500 animate-in fade-in duration-500">Select a conversation</div>
+          )}
+        </main>
 
-      {/* Details panel (toggle) */}
-      {showDetails && (
-        <aside className="hidden xl:block border-l border-neutral-200 dark:border-neutral-800 bg-white/60 dark:bg-black/30 backdrop-blur p-4">
+        {/* Details panel (toggle) */}
+        <aside
+          className={cn(
+            "hidden xl:block bg-white/60 dark:bg-black/30 backdrop-blur transition-all duration-300 overflow-hidden",
+            showDetails
+              ? "w-[320px] border-l border-neutral-200 dark:border-neutral-800 p-4 opacity-100"
+              : "w-0 p-0 border-0 opacity-0 pointer-events-none"
+          )}
+        >
           <div className="flex items-center gap-3">
-            <Avatar alt="Profile" />
+            <Avatar>
+              <AvatarImage src="" alt="Profile" />
+              <AvatarFallback>PR</AvatarFallback>
+            </Avatar>
             <div>
               <div className="font-medium">Ricky Smith</div>
               <div className="text-xs text-green-600">Online</div>
             </div>
-            <button className="ml-auto text-sm text-neutral-500 hover:underline" onClick={() => setShowDetails(false)}>Close</button>
+            <button className="ml-auto text-sm text-neutral-500 hover:underline transition-all duration-200 hover:scale-105" onClick={() => setShowDetails(false)}>Close</button>
           </div>
           <div className="mt-6 text-sm font-semibold">Customize Chat</div>
           <div className="mt-4 text-sm font-semibold">Media, Files and Links</div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             {Array.from({ length: 9 }).map((_, i) => (
-              <div key={i} className="aspect-square rounded-lg bg-neutral-200 dark:bg-neutral-800" />
+              <div key={i} className="aspect-square rounded-lg bg-neutral-200 dark:bg-neutral-800 transition-all duration-200 hover:scale-105 hover:bg-neutral-300 dark:hover:bg-neutral-700" />
             ))}
           </div>
           <div className="mt-6 text-sm font-semibold">Privacy and Support</div>
         </aside>
-      )}
-    </div>
+      </div>
+    </SidebarProvider>
   );
 }
 
