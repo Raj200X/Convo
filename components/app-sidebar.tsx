@@ -99,7 +99,7 @@ const chatData = {
 }
 
 export function AppSidebar() {
-  const { isMobile, isOpen, setOpen } = useSidebar()
+  const { isMobile, setOpen } = useSidebar()
   const [activeItem, setActiveItem] = React.useState(chatData.navMain[0])
   const supabase = React.useMemo(() => supabaseBrowser(), [])
   const [conversations, setConversations] = React.useState<Array<{id:string; name:string; email:string; unread:number; avatar:string|null; lastMessage?:string; time?:string;}>>([])
