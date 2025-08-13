@@ -77,6 +77,8 @@ export default function ChatsShell() {
   const [reactions, setReactions] = useState<Record<string, Record<string, string[]>>>({});
   const QUICK_EMOJIS = ["👍","❤️","😂","😮","😢","🙌"];
   const [headerTitle, setHeaderTitle] = useState<string>("Conversation");
+  const [selfProfile, setSelfProfile] = useState<{ display_name: string | null; avatar_url: string | null } | null>(null);
+  const [peerProfile, setPeerProfile] = useState<{ display_name: string | null; email: string | null; avatar_url: string | null } | null>(null);
 
   function toggleReaction(messageId: string, emoji: string) {
     if (!userId) return;
@@ -126,6 +128,12 @@ export default function ChatsShell() {
       if (userData.user) {
         // ensure profile exists for search
         await supabase.from("profiles").upsert({ id: userData.user.id, email: userData.user.email });
+        const { data: me } = await supabase
+          .from('profiles')
+          .select('display_name, avatar_url')
+          .eq('id', userData.user.id)
+          .single();
+        if (me) setSelfProfile({ display_name: (me as any).display_name ?? null, avatar_url: (me as any).avatar_url ?? null });
       }
       const { data } = await supabase
         .from("conversation_participants")
@@ -165,13 +173,19 @@ export default function ChatsShell() {
       if (conv?.type === 'direct') {
         const { data: participants } = await supabase
           .from('conversation_participants')
-          .select('user_id, profiles:profiles(email, display_name)')
+          .select('user_id, profiles:profiles(email, display_name, avatar_url)')
           .eq('conversation_id', activeConversationId);
         const other = (participants || []).find((p: any) => p.user_id !== userId) as any;
         const title = other?.profiles?.display_name || other?.profiles?.email || 'Direct chat';
+        setPeerProfile({
+          display_name: other?.profiles?.display_name ?? null,
+          email: other?.profiles?.email ?? null,
+          avatar_url: other?.profiles?.avatar_url ?? null,
+        });
         setHeaderTitle(title);
       } else {
         setHeaderTitle('Group');
+        setPeerProfile(null);
       }
     })();
     // ensure we subscribe to this conversation's inserts/deletes specifically
@@ -469,7 +483,13 @@ export default function ChatsShell() {
                           {isSameDay(new Date(), new Date(m.created_at)) ? "Today" : "Yesterday"}
                         </motion.div>
                       )}
-                      <div className={cn("w-full flex", isMine ? "justify-end" : "justify-start pl-4")}>
+                      <div className={cn("w-full flex items-end gap-2", isMine ? "justify-end pr-2" : "justify-start pl-4")}> 
+                        {!isMine && (
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
+                            <AvatarFallback>{(peerProfile?.display_name || peerProfile?.email || 'U').charAt(0)}</AvatarFallback>
+                          </Avatar>
+                        )}
                         <DropdownMenu open={menuOpenId === m.id} onOpenChange={(o)=>!o && setMenuOpenId(null)}>
                           <DropdownMenuTrigger asChild>
                             <motion.div
@@ -482,19 +502,15 @@ export default function ChatsShell() {
                           className={cn(
                             "w-fit max-w-[72%] flex flex-col rounded-2xl px-3 py-2 shadow-sm transition-all duration-300 message-bubble",
                             isMine
-                              ? "bg-[var(--brand)] text-white items-end mr-2 md:mr-4"
-                              : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-start ml-4"
+                              ? "bg-[var(--brand)] text-white items-end"
+                              : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-start"
                           )}
                               onContextMenu={(e)=>{ e.preventDefault(); setMenuOpenId(m.id);} }
                             >
-                        {/* Show sender name */}
-                        <div className={cn(
-                          "text-xs mb-1 font-medium",
-                          isMine 
-                            ? "text-white/80 text-right" 
-                            : "text-neutral-500 text-left"
-                        )}>
-                          {isMine ? "You" : "Other User"}
+                        <div className="-mt-4 mb-1 px-1 select-none">
+                          <div className={cn("text-[11px] tracking-wide", isMine ? "text-right text-white/80" : "text-left text-neutral-500")}> 
+                            {isMine ? `${format(new Date(m.created_at), "p")} You` : `${peerProfile?.display_name || peerProfile?.email || "User"} ${format(new Date(m.created_at), "p")}`}
+                          </div>
                         </div>
                         {m.file_url ? (
                           m.file_name && !m.file_url.match(/\.(png|jpe?g|gif|webp)$/i) ? (
@@ -507,14 +523,6 @@ export default function ChatsShell() {
                           )
                         ) : null}
                         {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
-                        <div className={cn(
-                          "mt-1 text-[10px] opacity-70", 
-                          isMine 
-                            ? "text-white/80 text-right" 
-                            : "text-neutral-500 text-left"
-                        )}>
-                          {format(new Date(m.created_at), "p")}
-                        </div>
                             </motion.div>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align={isMine ? "end" : "start"} className="w-48">
@@ -546,6 +554,12 @@ export default function ChatsShell() {
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        {isMine && (
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={selfProfile?.avatar_url || undefined} alt={selfProfile?.display_name || 'You'} />
+                            <AvatarFallback>{(selfProfile?.display_name || 'You').charAt(0)}</AvatarFallback>
+                          </Avatar>
+                        )}
                       </div>
                       {/* Reactions bar */}
                       {reactions[m.id] && (
