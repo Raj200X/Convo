@@ -483,49 +483,48 @@ export default function ChatsShell() {
                           {isSameDay(new Date(), new Date(m.created_at)) ? "Today" : "Yesterday"}
                         </motion.div>
                       )}
-                      <div className={cn("w-full flex items-end gap-2", isMine ? "justify-end pr-2" : "justify-start pl-4")}> 
+                      <div className={cn("w-full flex items-end gap-2 px-2", isMine ? "justify-end" : "justify-start")}> 
                         {!isMine && (
                           <Avatar className="h-8 w-8">
                             <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
                             <AvatarFallback>{(peerProfile?.display_name || peerProfile?.email || 'U').charAt(0)}</AvatarFallback>
                           </Avatar>
                         )}
-                        <DropdownMenu open={menuOpenId === m.id} onOpenChange={(o)=>!o && setMenuOpenId(null)}>
-                          <DropdownMenuTrigger asChild>
-                            <motion.div
-                          layoutId={`msg-${m.id}`}
-                          layout
-                          initial={{ opacity: 0, y: 14, scale: 0.98 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 10 }}
-                          transition={{ type: "spring", stiffness: 260, damping: 20, mass: 0.6 }}
-                          className={cn(
-                            "w-fit max-w-[72%] flex flex-col rounded-2xl px-3 py-2 shadow-sm transition-all duration-300 message-bubble",
-                            isMine
-                              ? "bg-[var(--brand)] text-white items-end"
-                              : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-start"
-                          )}
-                              onContextMenu={(e)=>{ e.preventDefault(); setMenuOpenId(m.id);} }
-                            >
-                        <div className="-mt-4 mb-1 px-1 select-none">
-                          <div className={cn("text-[11px] tracking-wide", isMine ? "text-right text-white/80" : "text-left text-neutral-500")}> 
-                            {isMine ? `${format(new Date(m.created_at), "p")} You` : `${peerProfile?.display_name || peerProfile?.email || "User"} ${format(new Date(m.created_at), "p")}`}
+                        {/* Column wrapper for header + bubble */}
+                        <div className={cn("flex flex-col max-w-[72%]", isMine ? "items-end" : "items-start")}> 
+                          {/* Name/Time row outside bubble */}
+                          <div className={cn("mb-1 text-[11px] tracking-wide", isMine ? "text-right text-neutral-500 dark:text-neutral-400" : "text-left text-neutral-500")}>
+                            {isMine ? `${format(new Date(m.created_at), "p")} · You` : `${peerProfile?.display_name || peerProfile?.email || "User"} · ${format(new Date(m.created_at), "p")}`}
                           </div>
-                        </div>
-                        {m.file_url ? (
-                          m.file_name && !m.file_url.match(/\.(png|jpe?g|gif|webp)$/i) ? (
-                            <a href={m.file_url} target="_blank" className="flex items-center gap-2 underline">
-                              <FileIcon size={16} /> {m.file_name}
-                            </a>
-                          ) : (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={m.file_url} alt={m.file_name ?? "image"} className="rounded-md max-h-60" />
-                          )
-                        ) : null}
-                        {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
-                            </motion.div>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align={isMine ? "end" : "start"} className="w-48">
+                          <DropdownMenu open={menuOpenId === m.id} onOpenChange={(o)=>!o && setMenuOpenId(null)}>
+                            <DropdownMenuTrigger asChild>
+                              <motion.div
+                                layoutId={`msg-${m.id}`}
+                                layout
+                                initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 10 }}
+                                transition={{ type: "spring", stiffness: 260, damping: 20, mass: 0.6 }}
+                                className={cn(
+                                  "w-fit max-w-full flex flex-col rounded-2xl px-3 py-2 shadow-sm transition-all duration-300 message-bubble",
+                                  isMine ? "bg-[var(--brand)] text-white items-end" : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-start"
+                                )}
+                                onContextMenu={(e)=>{ e.preventDefault(); setMenuOpenId(m.id);} }
+                              >
+                                {m.file_url ? (
+                                  m.file_name && !m.file_url.match(/\.(png|jpe?g|gif|webp)$/i) ? (
+                                    <a href={m.file_url} target="_blank" className="flex items-center gap-2 underline">
+                                      <FileIcon size={16} /> {m.file_name}
+                                    </a>
+                                  ) : (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={m.file_url} alt={m.file_name ?? "image"} className="rounded-md max-h-60" />
+                                  )
+                                ) : null}
+                                {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
+                              </motion.div>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align={isMine ? "end" : "start"} className="w-48">
                             {isMine ? (
                               <>
                                 <DropdownMenuItem className="text-destructive" onClick={()=>deleteMessage(m.id)}>
@@ -553,7 +552,8 @@ export default function ChatsShell() {
                               </>
                             )}
                           </DropdownMenuContent>
-                        </DropdownMenu>
+                          </DropdownMenu>
+                        </div>
                         {isMine && (
                           <Avatar className="h-8 w-8">
                             <AvatarImage src={selfProfile?.avatar_url || undefined} alt={selfProfile?.display_name || 'You'} />
