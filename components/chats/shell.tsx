@@ -120,7 +120,6 @@ export default function ChatsShell() {
 
   // Resolve user id and load user's conversations
   useEffect(() => {
-    let sub: unknown = null;
     (async () => {
       const { data: userData } = await supabase.auth.getUser();
       setUserId(userData.user?.id ?? null);
@@ -142,30 +141,7 @@ export default function ChatsShell() {
       console.log("Loaded conversations:", uniqueConvs);
       setConversations(uniqueConvs);
       if (uniqueConvs.length && !activeConversationId) setActiveConversationId(uniqueConvs[0].id);
-
-      // realtime on messages
-        sub = supabase
-          .channel(`messages:${activeConversationId ?? 'all'}`)
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
-          const newMsg = payload.new as Message;
-          if (newMsg.conversation_id === activeConversationId) {
-            setMessages((m) => {
-              // Check if message already exists to prevent duplicates
-              const exists = m.some(msg => msg.id === newMsg.id);
-              if (!exists) {
-                // Mark new message for animation
-                const messageWithAnimation = { ...newMsg, isNew: true };
-                return [...m, messageWithAnimation];
-              }
-              return m;
-            });
-          }
-        })
-        .subscribe();
     })();
-    return () => {
-      if (sub) supabase.removeChannel(sub as any);
-    };
   }, [activeConversationId, supabase]);
 
   // Load messages for active conversation
@@ -198,7 +174,7 @@ export default function ChatsShell() {
         setHeaderTitle('Group');
       }
     })();
-    // ensure we subscribe to this conversation's inserts specifically
+    // ensure we subscribe to this conversation's inserts/deletes specifically
     const channel = supabase
       .channel(`conversation:${activeConversationId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${activeConversationId}` }, (payload) => {
@@ -451,7 +427,7 @@ export default function ChatsShell() {
     <SidebarProvider>
       <div className="min-h-[100svh] w-full flex">
         {/* New shadcn Sidebar */}
-        <AppSidebar />
+        <AppSidebar onConversationSelect={(id) => setActiveConversationId(id)} />
         {/* Main Chat Area */}
         <main className="flex-1 flex flex-col bg-white/70 dark:bg-black/40 backdrop-blur">
           {activeConversationId ? (

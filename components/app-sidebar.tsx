@@ -98,7 +98,7 @@ const chatData = {
   ],
 }
 
-export function AppSidebar() {
+export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (id: string) => void } = {}) {
   const { isMobile, setOpen } = useSidebar()
   const [activeItem, setActiveItem] = React.useState(chatData.navMain[0])
   const supabase = React.useMemo(() => supabaseBrowser(), [])
@@ -170,6 +170,7 @@ export function AppSidebar() {
       if ((overlap||[]).length){
         const cid = overlap![0].conversation_id as string
         localStorage.setItem('activeConversationId', cid)
+        try { onConversationSelect?.(cid) } catch {}
         return
       }
     }
@@ -182,6 +183,7 @@ export function AppSidebar() {
     ])
     setConversations(prev => [{ id: conv.id, name: person.display_name || person.email, email: person.email, avatar: person.avatar_url, unread: 0 }, ...prev])
     localStorage.setItem('activeConversationId', conv.id)
+    try { onConversationSelect?.(conv.id) } catch {}
   }
 
   const filteredConversations = conversations.filter(conv =>
@@ -358,6 +360,7 @@ export function AppSidebar() {
                       className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer transition-colors"
                       onClick={() => {
                         try { localStorage.setItem('activeConversationId', conv.id) } catch {}
+                        try { onConversationSelect?.(conv.id) } catch {}
                         if (isMobile) setOpen(false)
                       }}
                     >
