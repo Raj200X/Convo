@@ -162,3 +162,25 @@ create policy "group_invites insert admin" on public.group_invites for insert wi
 -- Storage bucket (create through UI/CLI): attachments, public read, authenticated write
 -- Enforce 10MB max in client before upload
 
+-- Storage RLS policies for attachments bucket
+-- Note: These policies apply to storage.objects table, not a custom bucket table
+-- Run these after creating the 'attachments' bucket in Supabase Dashboard > Storage
+
+-- Allow authenticated users to upload files
+create policy "Authenticated users can upload files" on storage.objects
+  for insert with check (
+    bucket_id = 'attachments' 
+    and auth.uid() is not null
+  );
+
+-- Allow public read access to files
+create policy "Public can view files" on storage.objects
+  for select using (bucket_id = 'attachments');
+
+-- Allow users to delete their own files
+create policy "Users can delete own files" on storage.objects
+  for delete using (
+    bucket_id = 'attachments' 
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+

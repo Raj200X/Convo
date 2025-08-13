@@ -193,7 +193,25 @@ export default function ChatsShell() {
       .channel(`conversation:${activeConversationId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${activeConversationId}` }, (payload) => {
         const row = payload.new as Message;
-        setMessages(prev => (prev.some(m => m.id === row.id) ? prev : [...prev, { ...row, isNew: true }]));
+        // Only add if it's not already in messages (prevents duplicates from optimistic updates)
+        setMessages(prev => {
+          const exists = prev.some(m => m.id === row.id);
+          if (exists) return prev;
+          
+          // Check if this is replacing an optimistic message from the same sender
+          const hasOptimistic = prev.some(m => 
+            m.id.startsWith('temp-') && 
+            m.sender_id === row.sender_id && 
+            m.content === row.content &&
+            Math.abs(new Date(m.created_at).getTime() - new Date(row.created_at).getTime()) < 5000
+          );
+          
+          // If we have an optimistic version, don't add the real one (it will be replaced)
+          if (hasOptimistic) return prev;
+          
+          // Otherwise add the new message with animation for messages from others
+          return [...prev, { ...row, isNew: row.sender_id !== userId }];
+        });
       })
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages", filter: `conversation_id=eq.${activeConversationId}` }, (payload) => {
         const row = payload.old as Message;
@@ -212,11 +230,11 @@ export default function ChatsShell() {
     if (!activeConversationId || content.length === 0) return;
     
     setSendingMessage(true);
-    setIsTyping(true);
     
     // Create optimistic message for immediate UI feedback
+    const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: Message = {
-      id: `temp-${Date.now()}`,
+      id: tempId,
       sender_id: userId!,
       conversation_id: activeConversationId,
       content,
@@ -228,11 +246,12 @@ export default function ChatsShell() {
     };
     
     setMessages(prev => [...prev, optimisticMessage]);
-    // Smooth scroll and slight float animation cue
-    requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    });
     setDraft("");
+    
+    // Immediate scroll to prevent layout shift
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+    });
     
     try {
       const { data: inserted, error } = await supabase
@@ -247,18 +266,23 @@ export default function ChatsShell() {
       
       if (error) throw error;
       
-      // Replace optimistic message with the inserted row immediately
+      // Smoothly replace optimistic message - preserve position and state
       setMessages(prev => prev.map(msg =>
-        msg.id === optimisticMessage.id ? ({ ...(inserted as Message), isNew: false }) : msg
+        msg.id === tempId 
+          ? { 
+              ...(inserted as Message),
+              isNew: false, // No animation on replacement
+              // Preserve the exact created_at from optimistic to prevent reordering
+              created_at: msg.created_at
+            }
+          : msg
       ));
     } catch (error) {
       console.error("Failed to send message:", error);
       // Remove optimistic message on error
-      setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id));
-      // Could show error toast here
+      setMessages(prev => prev.filter(msg => msg.id !== tempId));
     } finally {
       setSendingMessage(false);
-      setIsTyping(false);
     }
   }
 
@@ -443,23 +467,29 @@ export default function ChatsShell() {
         {/* New shadcn Sidebar */}
         <AppSidebar onConversationSelect={(id) => setActiveConversationId(id)} />
         {/* Main Chat Area */}
-        <main className="flex-1 flex flex-col bg-white/70 dark:bg-black/40 backdrop-blur">
+        <main className={cn("flex-1 flex flex-col bg-white/70 dark:bg-black/40 backdrop-blur transition-all duration-300", showDetails ? "mr-[320px]" : "mr-0")}>
           {activeConversationId ? (
             <>
-              {/* Chat header */}
-              <div className="border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center gap-3">
+              {/* Chat header - sticky */}
+              <div className="sticky top-0 z-10 bg-white/90 dark:bg-black/50 backdrop-blur-md border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center gap-3">
                 <Avatar>
-                  <AvatarImage src="" alt="Chat" />
-                  <AvatarFallback>CH</AvatarFallback>
+                  <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
+                  <AvatarFallback>{(peerProfile?.display_name || peerProfile?.email || 'U').charAt(0)}</AvatarFallback>
                 </Avatar>
-                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowDetails(true)} title="View profile">
+                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowDetails(!showDetails)} title="View profile">
                   <div className="font-medium truncate">{headerTitle}</div>
                   <div className="text-xs text-neutral-500">Online</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><Phone size={16} /></Button>
                   <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><Video size={16} /></Button>
-                  <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><MoreVertical size={16} /></Button>
+                  <Button 
+                    variant="outline" 
+                    className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"
+                    onClick={() => setShowDetails(!showDetails)}
+                  >
+                    <MoreVertical size={16} />
+                  </Button>
                 </div>
               </div>
 
@@ -499,14 +529,18 @@ export default function ChatsShell() {
                           <DropdownMenu open={menuOpenId === m.id} onOpenChange={(o)=>!o && setMenuOpenId(null)}>
                             <DropdownMenuTrigger asChild>
                               <motion.div
-                                layoutId={`msg-${m.id}`}
-                                layout
-                                initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                                key={m.id.startsWith('temp-') ? `temp-${m.content?.slice(0,20)}` : m.id}
+                                layout="preserve-aspect"
+                                initial={m.isNew ? { opacity: 0, y: 10, scale: 0.98 } : false}
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: 10 }}
-                                transition={{ type: "spring", stiffness: 260, damping: 20, mass: 0.6 }}
+                                exit={{ opacity: 0, y: -5, scale: 0.98 }}
+                                transition={{ 
+                                  type: "tween", 
+                                  duration: 0.15,
+                                  ease: "easeOut"
+                                }}
                                 className={cn(
-                                  "w-fit max-w-full flex flex-col rounded-2xl px-3 py-2 shadow-sm transition-all duration-300 message-bubble",
+                                  "w-fit max-w-full flex flex-col rounded-2xl px-3 py-2 shadow-sm message-bubble",
                                   isMine ? "bg-[var(--brand)] text-white items-end" : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-start"
                                 )}
                                 onContextMenu={(e)=>{ e.preventDefault(); setMenuOpenId(m.id);} }
@@ -597,9 +631,9 @@ export default function ChatsShell() {
                 </div>
               </ScrollArea>
 
-              {/* Composer */}
-              <div className="border-t border-neutral-200 dark:border-neutral-800 p-2">
-                <div className="flex items-end gap-2">
+              {/* Composer - sticky */}
+              <div className="sticky bottom-0 z-10 bg-white/90 dark:bg-black/50 backdrop-blur-md border-t border-neutral-200 dark:border-neutral-800 p-3">
+                <div className="flex items-end gap-2 max-h-32">
                   <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" onClick={() => fileInputRef.current?.click()} aria-label="Attach">
                     <Paperclip size={18} />
                   </button>
@@ -613,10 +647,18 @@ export default function ChatsShell() {
                       setDraft(e.target.value);
                       sendTyping();
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (draft.trim()) {
+                          sendMessage();
+                        }
+                      }
+                    }}
                     minRows={1}
-                    maxRows={6}
-                     className="w-full resize-none rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-sm outline-none transition-all duration-300 focus:scale-105 focus:border-[var(--brand)] focus:shadow-lg focus-ring"
-                    placeholder="Write something.."
+                    maxRows={3}
+                     className="flex-1 resize-none rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--brand)] focus:shadow-md focus-ring"
+                    placeholder="Write something.. (Enter to send, Shift+Enter for new line)"
                   />
                   <Button 
                     onClick={sendMessage} 
@@ -644,34 +686,96 @@ export default function ChatsShell() {
           )}
         </main>
 
-        {/* Details panel (toggle) */}
+        {/* Details panel (toggle) - fixed positioning */}
         <aside
           className={cn(
-            "hidden xl:block bg-white/60 dark:bg-black/30 backdrop-blur transition-all duration-300 overflow-hidden",
+            "hidden xl:flex flex-col bg-white/60 dark:bg-black/30 backdrop-blur transition-all duration-300 overflow-hidden fixed right-0 top-0 h-full z-20",
             showDetails
-              ? "w-[320px] border-l border-neutral-200 dark:border-neutral-800 p-4 opacity-100"
-              : "w-0 p-0 border-0 opacity-0 pointer-events-none"
+              ? "w-[320px] border-l border-neutral-200 dark:border-neutral-800 opacity-100"
+              : "w-0 border-0 opacity-0 pointer-events-none"
           )}
         >
-          <div className="flex items-center gap-3">
-            <Avatar>
-              <AvatarImage src="" alt="Profile" />
-              <AvatarFallback>PR</AvatarFallback>
-            </Avatar>
-            <div>
-              <div className="font-medium">Ricky Smith</div>
-              <div className="text-xs text-green-600">Online</div>
+          {/* Header */}
+          <div className="bg-white/80 dark:bg-black/40 backdrop-blur-sm border-b border-neutral-200 dark:border-neutral-800 p-4">
+            <div className="flex items-center gap-3">
+              <Avatar>
+                <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
+                <AvatarFallback>{(peerProfile?.display_name || peerProfile?.email || 'U').charAt(0)}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <div className="font-medium">{peerProfile?.display_name || peerProfile?.email || 'Profile'}</div>
+                <div className="text-xs text-green-600">Online</div>
+              </div>
+              <button className="text-sm text-neutral-500 hover:underline transition-all duration-200 hover:scale-105" onClick={() => setShowDetails(false)}>✕</button>
             </div>
-            <button className="ml-auto text-sm text-neutral-500 hover:underline transition-all duration-200 hover:scale-105" onClick={() => setShowDetails(false)}>Close</button>
           </div>
-          <div className="mt-6 text-sm font-semibold">Customize Chat</div>
-          <div className="mt-4 text-sm font-semibold">Media, Files and Links</div>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <div key={i} className="aspect-square rounded-lg bg-neutral-200 dark:bg-neutral-800 transition-all duration-200 hover:scale-105 hover:bg-neutral-300 dark:hover:bg-neutral-700" />
-            ))}
-          </div>
-          <div className="mt-6 text-sm font-semibold">Privacy and Support</div>
+
+          {/* Scrollable content */}
+          <ScrollArea className="flex-1 h-full">
+            <div className="p-4 space-y-6">
+              <div>
+                <div className="text-sm font-semibold mb-3">Customize Chat</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" size="sm" className="h-8">Mute</Button>
+                  <Button variant="outline" size="sm" className="h-8">Block</Button>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold mb-3">Media, Files and Links</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {messages
+                    .filter(m => m.file_url)
+                    .slice(-9) // Show last 9 media items
+                    .map((m) => (
+                      <div key={m.id} className="aspect-square rounded-lg overflow-hidden bg-neutral-200 dark:bg-neutral-800 transition-all duration-200 hover:scale-105 cursor-pointer">
+                        {m.file_url?.match(/\.(png|jpe?g|gif|webp)$/i) ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img 
+                            src={m.file_url} 
+                            alt={m.file_name || "image"} 
+                            className="w-full h-full object-cover"
+                            onClick={() => window.open(m.file_url!, '_blank')}
+                          />
+                        ) : (
+                          <div 
+                            className="w-full h-full flex flex-col items-center justify-center p-2 hover:bg-neutral-300 dark:hover:bg-neutral-700"
+                            onClick={() => window.open(m.file_url!, '_blank')}
+                          >
+                            <FileIcon size={20} className="text-neutral-600 dark:text-neutral-400" />
+                            <div className="text-[10px] text-center mt-1 text-neutral-600 dark:text-neutral-400 truncate w-full">
+                              {m.file_name?.split('.').pop()?.toUpperCase()}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  {messages.filter(m => m.file_url).length === 0 && (
+                    <div className="col-span-3 text-xs text-neutral-500 text-center py-4">
+                      No media shared yet
+                    </div>
+                  )}
+                </div>
+                {messages.filter(m => m.file_url).length > 9 && (
+                  <div className="text-xs text-neutral-500 mt-2 text-center">
+                    +{messages.filter(m => m.file_url).length - 9} more files
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold mb-3">Privacy and Support</div>
+                <div className="space-y-2">
+                  <Button variant="ghost" size="sm" className="w-full justify-start h-8 text-neutral-600">
+                    Report User
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start h-8 text-neutral-600">
+                    Clear Chat History
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </ScrollArea>
         </aside>
       </div>
     </SidebarProvider>

@@ -102,9 +102,11 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
   const { isMobile, setOpen } = useSidebar()
   const [activeItem, setActiveItem] = React.useState(chatData.navMain[0])
   const supabase = React.useMemo(() => supabaseBrowser(), [])
-  const [conversations, setConversations] = React.useState<Array<{id:string; name:string; email:string; unread:number; avatar:string|null; lastMessage?:string; time?:string;}>>([])
+  const [directChats, setDirectChats] = React.useState<Array<{id:string; name:string; email:string; unread:number; avatar:string|null; lastMessage?:string; time?:string;}>>([])
+  const [groupChats, setGroupChats] = React.useState<Array<{id:string; name:string; email:string; unread:number; avatar:string|null; lastMessage?:string; time?:string;}>>([])
   const [searchQuery, setSearchQuery] = React.useState("")
   const [userId, setUserId] = React.useState<string | null>(null)
+  const [activeTab, setActiveTab] = React.useState<'personal' | 'groups'>('personal')
   const [people, setPeople] = React.useState<Array<{id:string; email:string; display_name:string|null; avatar_url:string|null}>>([])
 
   React.useEffect(()=>{
@@ -120,24 +122,50 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
 
       const convIds = (parts||[]).map((p:any)=>p.conversation_id)
       if (convIds.length){
-        // resolve display names by finding the other participant for direct
-        const { data: others } = await supabase
-          .from('conversation_participants')
-          .select('conversation_id, user_id, profiles:profiles(email, display_name, avatar_url)')
-          .in('conversation_id', convIds)
-        const byConv: Record<string, any[]> = {}
-        ;(others||[]).forEach((r:any)=>{ (byConv[r.conversation_id] ||= []).push(r) })
-        const items = Object.entries(byConv).map(([cid, rows])=>{
-          const other = rows.find((r:any)=> r.user_id !== user.id)
-          return {
-            id: cid,
-            name: other?.profiles?.display_name || other?.profiles?.email || '',
-            email: other?.profiles?.email || '',
-            avatar: other?.profiles?.avatar_url || null,
-            unread: 0,
-          }
+        // Fetch conversations to distinguish types and groups
+        const { data: convs } = await supabase
+          .from('conversations')
+          .select('id,type,group_id')
+          .in('id', convIds)
+
+        const directIds = (convs||[]).filter((c:any)=>c.type==='direct').map((c:any)=>c.id)
+        const groupMap: Record<string, any> = {}
+        const groupIds = (convs||[]).filter((c:any)=>c.type==='group' && c.group_id).map((c:any)=>c.group_id)
+        if (groupIds.length){
+          const { data: groups } = await supabase.from('groups').select('id,name,image_url').in('id', groupIds)
+          ;(groups||[]).forEach((g:any)=>{ groupMap[g.id] = g })
+        }
+
+        // resolve display names by finding the other participant for directs
+        let directItems: Array<{id:string; name:string; email:string; avatar:string|null; unread:number}> = []
+        if (directIds.length){
+          const { data: others } = await supabase
+            .from('conversation_participants')
+            .select('conversation_id, user_id, profiles:profiles(email, display_name, avatar_url)')
+            .in('conversation_id', directIds)
+          const byConv: Record<string, any[]> = {}
+          ;(others||[]).forEach((r:any)=>{ (byConv[r.conversation_id] ||= []).push(r) })
+          directItems = Object.entries(byConv).map(([cid, rows])=>{
+            const other = rows.find((r:any)=> r.user_id !== user.id)
+            return {
+              id: cid,
+              name: other?.profiles?.display_name || other?.profiles?.email || '',
+              email: other?.profiles?.email || '',
+              avatar: other?.profiles?.avatar_url || null,
+              unread: 0,
+            }
+          })
+        }
+
+        // add groups
+        const groupItems: Array<{id:string; name:string; email:string; avatar:string|null; unread:number}> = []
+        ;(convs||[]).filter((c:any)=>c.type==='group').forEach((c:any)=>{
+          const g = groupMap[c.group_id]
+          groupItems.push({ id: c.id, name: g?.name || 'Group', email: '', avatar: g?.image_url || null, unread: 0 })
         })
-        setConversations(items)
+
+        setDirectChats(directItems)
+        setGroupChats(groupItems)
       }
     })()
   },[supabase])
@@ -181,14 +209,38 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
       { conversation_id: conv.id, user_id: userId, role: 'member' },
       { conversation_id: conv.id, user_id: person.id, role: 'member' },
     ])
-    setConversations(prev => [{ id: conv.id, name: person.display_name || person.email, email: person.email, avatar: person.avatar_url, unread: 0 }, ...prev])
+    setDirectChats(prev => [{ id: conv.id, name: person.display_name || person.email, email: person.email, avatar: person.avatar_url, unread: 0 }, ...prev])
     localStorage.setItem('activeConversationId', conv.id)
     try { onConversationSelect?.(conv.id) } catch {}
   }
 
-  const filteredConversations = conversations.filter(conv =>
+  async function createGroup(){
+    if (!userId) return
+    const name = window.prompt('Group name')?.trim()
+    if (!name) return
+    const emailsRaw = window.prompt('Add members by email (comma separated)') || ''
+    const emails = emailsRaw.split(',').map(e=>e.trim()).filter(Boolean)
+    const { data: grp } = await supabase.from('groups').insert({ name, created_by: userId }).select('id,name,image_url').single()
+    if (!grp) return
+    const { data: conv } = await supabase.from('conversations').insert({ type: 'group', group_id: grp.id, created_by: userId }).select('id').single()
+    if (!conv) return
+    const { data: found } = await supabase.from('profiles').select('id,email').in('email', emails)
+    const rows = [
+      { conversation_id: conv.id, user_id: userId, role: 'admin' },
+      ...((found||[]) as any[]).map(u=>({ conversation_id: conv.id, user_id: u.id, role: 'member' }))
+    ]
+    await supabase.from('conversation_participants').insert(rows)
+    setGroupChats(prev => [{ id: conv.id, name, email: '', avatar: grp.image_url || null, unread: 0 }, ...prev])
+    try { localStorage.setItem('activeConversationId', conv.id); onConversationSelect?.(conv.id) } catch {}
+  }
+
+  const filteredDirectChats = directChats.filter(conv =>
     conv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     conv.email.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+  
+  const filteredGroupChats = groupChats.filter(conv =>
+    conv.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   return (
@@ -326,7 +378,7 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                   <Plus className="w-4 h-4 mr-2" />
                   New Chat
                 </Button>
-                <Button variant="outline" className="w-full" size="sm">
+                <Button variant="outline" className="w-full" size="sm" onClick={createGroup}>
                   <Users2 className="w-4 h-4 mr-2" />
                   New Group
                 </Button>
@@ -350,44 +402,126 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                  </div>
                )}
 
-               {/* Conversations list */}
-              <div className="px-4 pb-4">
-                <Label className="text-sm font-semibold px-2 mb-3 block">Conversations</Label>
-                <div className="space-y-1">
-                  {filteredConversations.map((conv) => (
-                    <div
-                      key={conv.id}
-                      className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer transition-colors"
-                      onClick={() => {
-                        try { localStorage.setItem('activeConversationId', conv.id) } catch {}
-                        try { onConversationSelect?.(conv.id) } catch {}
-                        if (isMobile) setOpen(false)
-                      }}
-                    >
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
-                          <AvatarFallback className="rounded-lg">
-                            {(conv.name || conv.email || "?").charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-sm font-medium truncate">{conv.name || conv.email || ''}</div>
-                          <div className="text-xs text-muted-foreground">{conv.time}</div>
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {conv.lastMessage}
-                        </div>
-                      </div>
-                      {conv.unread > 0 && (
-                        <div className="h-5 w-5 rounded-full bg-[var(--brand)] text-white text-xs flex items-center justify-center">
-                          {conv.unread}
-                        </div>
-                      )}
-                  </div>
-              ))}
+              {/* Horizontal Tabs */}
+              <div className="px-4 pb-2">
+                <div className="flex border-b border-border mb-4">
+                  <button
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
+                      activeTab === 'personal'
+                        ? 'border-[var(--brand)] text-[var(--brand)]'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                    onClick={() => setActiveTab('personal')}
+                  >
+                    <Users className="w-4 h-4" />
+                    Personal
+                    {filteredDirectChats.length > 0 && (
+                      <span className="ml-1 text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
+                        {filteredDirectChats.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
+                      activeTab === 'groups'
+                        ? 'border-[var(--brand)] text-[var(--brand)]'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                    onClick={() => setActiveTab('groups')}
+                  >
+                    <Users2 className="w-4 h-4" />
+                    Groups
+                    {filteredGroupChats.length > 0 && (
+                      <span className="ml-1 text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
+                        {filteredGroupChats.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
-              </div>
+
+                {/* Tab Content */}
+                <div className="space-y-1">
+                  {activeTab === 'personal' ? (
+                    filteredDirectChats.length > 0 ? (
+                      filteredDirectChats.map((conv) => (
+                        <div
+                          key={conv.id}
+                          className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer transition-colors"
+                          onClick={() => {
+                            try { localStorage.setItem('activeConversationId', conv.id) } catch {}
+                            try { onConversationSelect?.(conv.id) } catch {}
+                            if (isMobile) setOpen(false)
+                          }}
+                        >
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
+                              <AvatarFallback className="rounded-lg">
+                                {(conv.name || conv.email || "?").charAt(0)}
+                              </AvatarFallback>
+                            </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium truncate">{conv.name || conv.email || ''}</div>
+                              <div className="text-xs text-muted-foreground">{conv.time}</div>
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {conv.lastMessage}
+                            </div>
+                          </div>
+                          {conv.unread > 0 && (
+                            <div className="h-5 w-5 rounded-full bg-[var(--brand)] text-white text-xs flex items-center justify-center">
+                              {conv.unread}
+                            </div>
+                          )}
+                      </div>
+                    ))
+                    ) : (
+                      <div className="text-xs text-muted-foreground px-2 py-8 text-center">
+                        No personal chats yet
+                      </div>
+                    )
+                  ) : (
+                    filteredGroupChats.length > 0 ? (
+                      filteredGroupChats.map((conv) => (
+                        <div
+                          key={conv.id}
+                          className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer transition-colors"
+                          onClick={() => {
+                            try { localStorage.setItem('activeConversationId', conv.id) } catch {}
+                            try { onConversationSelect?.(conv.id) } catch {}
+                            if (isMobile) setOpen(false)
+                          }}
+                        >
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
+                              <AvatarFallback className="rounded-lg bg-[var(--brand)] text-white">
+                                <Users2 className="w-5 h-5" />
+                              </AvatarFallback>
+                            </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium truncate">{conv.name}</div>
+                              <div className="text-xs text-muted-foreground">{conv.time}</div>
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {conv.lastMessage}
+                            </div>
+                          </div>
+                          {conv.unread > 0 && (
+                            <div className="h-5 w-5 rounded-full bg-[var(--brand)] text-white text-xs flex items-center justify-center">
+                              {conv.unread}
+                            </div>
+                          )}
+                      </div>
+                    ))
+                    ) : (
+                      <div className="text-xs text-muted-foreground px-2 py-8 text-center">
+                        No groups yet
+                      </div>
+                    )
+                  )}
+                </div>
+                  </div>
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
