@@ -23,8 +23,8 @@ import {
   Mic,
   Image as ImageIcon,
   Settings,
-      LogOut,
-      Trash2,
+  LogOut,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 // import Link from "next/link";
@@ -35,13 +35,13 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
-  import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-  } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 // removed resizable
 
 type Message = {
@@ -75,7 +75,7 @@ export default function ChatsShell() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [reactions, setReactions] = useState<Record<string, Record<string, string[]>>>({});
-  const QUICK_EMOJIS = ["👍","❤️","😂","😮","😢","🙌"];
+  const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙌"];
   const [headerTitle, setHeaderTitle] = useState<string>("Conversation");
   const [selfProfile, setSelfProfile] = useState<{ display_name: string | null; avatar_url: string | null } | null>(null);
   const [peerProfile, setPeerProfile] = useState<{ display_name: string | null; email: string | null; avatar_url: string | null } | null>(null);
@@ -140,12 +140,12 @@ export default function ChatsShell() {
         .select("conversation_id, conversations(id, type, group_id)");
       type ParticipantRow = { conversation_id: string; conversations: Conversation };
       const convs = (data as ParticipantRow[] | null)?.map((row) => row.conversations) ?? [];
-      
+
       // Remove duplicates based on ID
-      const uniqueConvs = convs.filter((conv, index, self) => 
+      const uniqueConvs = convs.filter((conv, index, self) =>
         index === self.findIndex(c => c.id === conv.id)
       );
-      
+
       console.log("Loaded conversations:", uniqueConvs);
       setConversations(uniqueConvs);
       if (uniqueConvs.length && !activeConversationId) setActiveConversationId(uniqueConvs[0].id);
@@ -163,7 +163,7 @@ export default function ChatsShell() {
         .order("created_at", { ascending: true });
       if (data) {
         // Remove duplicates and mark existing messages as not new
-        const uniqueMessages = data.filter((msg, index, self) => 
+        const uniqueMessages = data.filter((msg, index, self) =>
           index === self.findIndex(m => m.id === msg.id)
         ).map(msg => ({ ...msg, isNew: false }));
         setMessages(uniqueMessages);
@@ -197,18 +197,18 @@ export default function ChatsShell() {
         setMessages(prev => {
           const exists = prev.some(m => m.id === row.id);
           if (exists) return prev;
-          
+
           // Check if this is replacing an optimistic message from the same sender
-          const hasOptimistic = prev.some(m => 
-            m.id.startsWith('temp-') && 
-            m.sender_id === row.sender_id && 
+          const hasOptimistic = prev.some(m =>
+            m.id.startsWith('temp-') &&
+            m.sender_id === row.sender_id &&
             m.content === row.content &&
             Math.abs(new Date(m.created_at).getTime() - new Date(row.created_at).getTime()) < 5000
           );
-          
+
           // If we have an optimistic version, don't add the real one (it will be replaced)
           if (hasOptimistic) return prev;
-          
+
           // Otherwise add the new message with animation for messages from others
           return [...prev, { ...row, isNew: row.sender_id !== userId }];
         });
@@ -228,9 +228,9 @@ export default function ChatsShell() {
   async function sendMessage() {
     const content = draft.trim();
     if (!activeConversationId || content.length === 0) return;
-    
+
     setSendingMessage(true);
-    
+
     // Create optimistic message for immediate UI feedback
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: Message = {
@@ -244,37 +244,37 @@ export default function ChatsShell() {
       created_at: new Date().toISOString(),
       isNew: true
     };
-    
+
     setMessages(prev => [...prev, optimisticMessage]);
     setDraft("");
-    
+
     // Immediate scroll to prevent layout shift
     requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
     });
-    
+
     try {
       const { data: inserted, error } = await supabase
         .from("messages")
-        .insert({ 
-          conversation_id: activeConversationId, 
+        .insert({
+          conversation_id: activeConversationId,
           content,
           sender_id: userId,
         })
         .select("*")
         .single();
-      
+
       if (error) throw error;
-      
+
       // Smoothly replace optimistic message - preserve position and state
       setMessages(prev => prev.map(msg =>
-        msg.id === tempId 
-          ? { 
-              ...(inserted as Message),
-              isNew: false, // No animation on replacement
-              // Preserve the exact created_at from optimistic to prevent reordering
-              created_at: msg.created_at
-            }
+        msg.id === tempId
+          ? {
+            ...(inserted as Message),
+            isNew: false, // No animation on replacement
+            // Preserve the exact created_at from optimistic to prevent reordering
+            created_at: msg.created_at
+          }
           : msg
       ));
     } catch (error) {
@@ -312,12 +312,12 @@ export default function ChatsShell() {
 
   async function openDirectWith(user: { id: string }) {
     if (!userId) return;
-    
+
     // Debug: Check authentication state
     const { data: { user: authUser } } = await supabase.auth.getUser();
     console.log("Current auth user:", authUser);
     console.log("Component userId:", userId);
-    
+
     try {
       // find any existing direct conversation between both users
       const { data: myConvos } = await supabase
@@ -352,7 +352,7 @@ export default function ChatsShell() {
           }
         }
       }
-      
+
       // create a new direct conversation
       console.log("Creating conversation with userId:", userId);
       const { data: convIns, error: convErr } = await supabase
@@ -371,7 +371,7 @@ export default function ChatsShell() {
         return;
       }
       const convId = convIns.id;
-      
+
       // Insert current user first to satisfy potential RLS checks, then the peer
       const { error: partErrSelf } = await supabase
         .from("conversation_participants")
@@ -381,7 +381,7 @@ export default function ChatsShell() {
         alert(`Add self failed: ${partErrSelf.message}`);
         return;
       }
-      
+
       const { error: partErrPeer } = await supabase
         .from("conversation_participants")
         .insert({ conversation_id: convId, user_id: user.id, role: "member" });
@@ -390,7 +390,7 @@ export default function ChatsShell() {
         alert(`Add peer failed: ${partErrPeer.message}`);
         return;
       }
-      
+
       // Check if conversation already exists before adding
       setConversations((prev) => {
         const exists = prev.some(c => c.id === convId);
@@ -424,13 +424,13 @@ export default function ChatsShell() {
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
       await supabase
         .from("messages")
-        .insert({ 
+        .insert({
           conversation_id: activeConversationId,
           sender_id: userId,
-          kind: file.type.startsWith("image") ? "image" : "file", 
-          file_url: urlData.publicUrl, 
-          file_name: file.name, 
-          file_size_bytes: file.size 
+          kind: file.type.startsWith("image") ? "image" : "file",
+          file_url: urlData.publicUrl,
+          file_name: file.name,
+          file_size_bytes: file.size
         });
     } catch (e) {
       console.error(e);
@@ -467,11 +467,11 @@ export default function ChatsShell() {
         {/* New shadcn Sidebar */}
         <AppSidebar onConversationSelect={(id) => setActiveConversationId(id)} />
         {/* Main Chat Area */}
-        <main className={cn("flex-1 flex flex-col bg-white/70 dark:bg-black/40 backdrop-blur transition-all duration-300", showDetails ? "mr-[320px]" : "mr-0")}>
+        <main className={cn("flex-1 flex flex-col glass-panel transition-all duration-300", showDetails ? "mr-[320px]" : "mr-0")}>
           {activeConversationId ? (
             <>
               {/* Chat header - sticky */}
-              <div className="sticky top-0 z-10 bg-white/90 dark:bg-black/50 backdrop-blur-md border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center gap-3">
+              <div className="sticky top-0 z-20 glass-panel border-b-0 px-4 py-3 flex items-center gap-3 depth-shadow-bottom mb-2 rounded-b-2xl mx-2 mt-2">
                 <Avatar>
                   <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
                   <AvatarFallback>{(peerProfile?.display_name || peerProfile?.email || 'U').charAt(0)}</AvatarFallback>
@@ -483,8 +483,8 @@ export default function ChatsShell() {
                 <div className="flex items-center gap-2">
                   <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><Phone size={16} /></Button>
                   <Button variant="outline" className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"><Video size={16} /></Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="rounded-xl h-8 px-3 transition-all duration-200 hover:scale-105"
                     onClick={() => setShowDetails(!showDetails)}
                   >
@@ -495,190 +495,204 @@ export default function ChatsShell() {
 
               {/* Messages */}
               <ScrollArea className="flex-1">
-                <div className="pl-4 pr-3 py-6 space-y-2">
-                <AnimatePresence initial={false}>
-                {messages.map((m, idx) => {
-                  const prev = messages[idx - 1];
-                  const showDay = !prev || !isSameDay(new Date(prev.created_at), new Date(m.created_at));
-                  const isMine = Boolean(userId && m.sender_id === userId);
-                  return (
-                    <div key={m.id}>
-                      {showDay && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="my-5 text-center text-xs text-neutral-500"
-                        >
-                          {isSameDay(new Date(), new Date(m.created_at)) ? "Today" : "Yesterday"}
-                        </motion.div>
-                      )}
-                      <div className={cn("w-full flex items-end gap-2 px-2", isMine ? "justify-end" : "justify-start")}> 
-                        {!isMine && (
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
-                            <AvatarFallback>{(peerProfile?.display_name || peerProfile?.email || 'U').charAt(0)}</AvatarFallback>
-                          </Avatar>
-                        )}
-                        {/* Column wrapper for header + bubble */}
-                        <div className={cn("flex flex-col max-w-[72%]", isMine ? "items-end" : "items-start")}> 
-                          {/* Name/Time row outside bubble */}
-                          <div className={cn("mb-1 text-[11px] tracking-wide", isMine ? "text-right text-neutral-500 dark:text-neutral-400" : "text-left text-neutral-500")}>
-                            {isMine ? `${format(new Date(m.created_at), "p")} · You` : `${peerProfile?.display_name || peerProfile?.email || "User"} · ${format(new Date(m.created_at), "p")}`}
-                          </div>
-                          <DropdownMenu open={menuOpenId === m.id} onOpenChange={(o)=>!o && setMenuOpenId(null)}>
-                            <DropdownMenuTrigger asChild>
-                              <motion.div
-                                key={m.id.startsWith('temp-') ? `temp-${m.content?.slice(0,20)}` : m.id}
-                                layout="preserve-aspect"
-                                initial={m.isNew ? { opacity: 0, y: 10, scale: 0.98 } : false}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: -5, scale: 0.98 }}
-                                transition={{ 
-                                  type: "tween", 
-                                  duration: 0.15,
-                                  ease: "easeOut"
-                                }}
-                                className={cn(
-                                  "w-fit max-w-full flex flex-col rounded-2xl px-3 py-2 shadow-sm message-bubble",
-                                  isMine ? "bg-[var(--brand)] text-white items-end" : "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-start"
-                                )}
-                                onContextMenu={(e)=>{ e.preventDefault(); setMenuOpenId(m.id);} }
-                              >
-                                {m.file_url ? (
-                                  m.file_name && !m.file_url.match(/\.(png|jpe?g|gif|webp)$/i) ? (
-                                    <a href={m.file_url} target="_blank" className="flex items-center gap-2 underline">
-                                      <FileIcon size={16} /> {m.file_name}
-                                    </a>
-                                  ) : (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={m.file_url} alt={m.file_name ?? "image"} className="rounded-md max-h-60" />
-                                  )
-                                ) : null}
-                                {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
-                              </motion.div>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align={isMine ? "end" : "start"} className="w-48">
-                            {isMine ? (
-                              <>
-                                <DropdownMenuItem className="text-destructive" onClick={()=>deleteMessage(m.id)}>
-                                  <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={()=>setMenuOpenId(null)}>Cancel</DropdownMenuItem>
-                              </>
-                            ) : (
-                              <>
-                                <div className="px-2 py-1 text-xs text-muted-foreground">React</div>
-                                <div className="px-2 pb-2 flex items-center gap-1.5">
-                                  {QUICK_EMOJIS.map(em => (
-                                    <button
-                                      key={em}
-                                      className="h-8 w-8 rounded-full hover:bg-accent flex items-center justify-center"
-                                      onClick={()=>toggleReaction(m.id, em)}
-                                    >
-                                      <span className="text-lg leading-none">{em}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={()=>setMenuOpenId(null)}>Close</DropdownMenuItem>
-                              </>
+                {/* Animated Mesh Gradient Background */}
+                <div className="fixed inset-0 z-[-1] overflow-hidden pointer-events-none">
+                  <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-teal-500/20 blur-[100px] animate-float" style={{ animationDelay: '0s' }} />
+                  <div className="absolute top-[20%] right-[-5%] w-[30%] h-[30%] rounded-full bg-cyan-500/20 blur-[100px] animate-float" style={{ animationDelay: '-2s' }} />
+                  <div className="absolute bottom-[-10%] left-[20%] w-[35%] h-[35%] rounded-full bg-emerald-500/20 blur-[100px] animate-float" style={{ animationDelay: '-4s' }} />
+                </div>
+
+                <div className="pl-4 pr-3 py-6 space-y-4">
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {messages.map((m, idx) => {
+                      const prev = messages[idx - 1];
+                      const showDay = !prev || !isSameDay(new Date(prev.created_at), new Date(m.created_at));
+                      const isMine = Boolean(userId && m.sender_id === userId);
+
+                      return (
+                        <div key={m.id}>
+                          {showDay && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="my-6 text-center"
+                            >
+                              <span className="px-3 py-1 rounded-full bg-neutral-100/50 dark:bg-neutral-800/50 backdrop-blur-sm text-[10px] font-medium text-neutral-500 border border-white/20">
+                                {isSameDay(new Date(), new Date(m.created_at)) ? "Today" : "Yesterday"}
+                              </span>
+                            </motion.div>
+                          )}
+                          <div className={cn("w-full flex items-end gap-2.5 px-2 group", isMine ? "justify-end" : "justify-start")}>
+                            {!isMine && (
+                              <Avatar className="h-8 w-8 ring-2 ring-white dark:ring-neutral-800 shadow-sm">
+                                <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
+                                <AvatarFallback>{(peerProfile?.display_name || peerProfile?.email || 'U').charAt(0)}</AvatarFallback>
+                              </Avatar>
                             )}
-                          </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        {isMine && (
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={selfProfile?.avatar_url || undefined} alt={selfProfile?.display_name || 'You'} />
-                            <AvatarFallback>{(selfProfile?.display_name || 'You').charAt(0)}</AvatarFallback>
-                          </Avatar>
-                        )}
-                      </div>
-                      {/* Reactions bar */}
-                      {reactions[m.id] && (
-                        <div className={cn("mt-1 flex gap-1", isMine ? "justify-end" : "justify-start") }>
-                          {Object.entries(reactions[m.id]).filter(([, users]) => users.length > 0).map(([emoji, users]) => (
-                            <div key={emoji} className={cn(
-                              "px-1.5 py-0.5 rounded-full text-xs border",
-                              isMine ? "bg-[var(--brand-600)]/20 text-white border-white/20" : "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700"
-                            )}>
-                              <span className="mr-1 align-middle">{emoji}</span>
-                              <span className="align-middle">{users.length}</span>
+                            {/* Column wrapper for header + bubble */}
+                            <div className={cn("flex flex-col max-w-[72%]", isMine ? "items-end" : "items-start")}>
+                              {/* Name/Time row outside bubble */}
+                              <div className={cn("mb-1 text-[11px] font-medium tracking-wide opacity-0 group-hover:opacity-100 transition-opacity duration-200", isMine ? "text-right text-neutral-400" : "text-left text-neutral-400")}>
+                                {isMine ? `${format(new Date(m.created_at), "p")}` : `${peerProfile?.display_name || peerProfile?.email || "User"} · ${format(new Date(m.created_at), "p")}`}
+                              </div>
+                              <DropdownMenu open={menuOpenId === m.id} onOpenChange={(o) => !o && setMenuOpenId(null)}>
+                                <DropdownMenuTrigger asChild>
+                                  <motion.div
+                                    layout
+                                    initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.1 } }}
+                                    transition={{
+                                      type: "spring",
+                                      stiffness: 400,
+                                      damping: 25
+                                    }}
+                                    className={cn(
+                                      "relative w-fit max-w-full flex flex-col px-4 py-2.5 shadow-md message-bubble backdrop-blur-sm",
+                                      isMine
+                                        ? "rounded-2xl rounded-tr-sm bg-gradient-to-br from-[var(--brand)] to-[var(--brand-600)] text-white items-end border-0"
+                                        : "rounded-2xl rounded-tl-sm bg-white/80 dark:bg-neutral-900/80 border border-white/50 dark:border-white/10 text-neutral-800 dark:text-neutral-100 items-start hover:bg-white/90 dark:hover:bg-neutral-900/90"
+                                    )}
+                                    onContextMenu={(e) => { e.preventDefault(); setMenuOpenId(m.id); }}
+                                  >
+                                    {m.file_url ? (
+                                      m.file_name && !m.file_url.match(/\.(png|jpe?g|gif|webp)$/i) ? (
+                                        <a href={m.file_url} target="_blank" className="flex items-center gap-2 underline decoration-white/30 hover:decoration-white/100 transition-all">
+                                          <FileIcon size={16} /> {m.file_name}
+                                        </a>
+                                      ) : (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={m.file_url} alt={m.file_name ?? "image"} className="rounded-lg max-h-60 border border-white/10" />
+                                      )
+                                    ) : null}
+                                    {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed text-[15px]">{m.content}</div>}
+                                  </motion.div>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align={isMine ? "end" : "start"} className="w-48 glass-panel border-0">
+                                  {isMine ? (
+                                    <>
+                                      <DropdownMenuItem className="text-destructive focus:bg-destructive/10 cursor-pointer" onClick={() => deleteMessage(m.id)}>
+                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator className="bg-neutral-200/50" />
+                                      <DropdownMenuItem onClick={() => setMenuOpenId(null)}>Cancel</DropdownMenuItem>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="px-2 py-1 text-xs text-muted-foreground font-medium">React</div>
+                                      <div className="px-2 pb-2 flex items-center gap-1.5 flex-wrap">
+                                        {QUICK_EMOJIS.map(em => (
+                                          <button
+                                            key={em}
+                                            className="h-8 w-8 rounded-full hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
+                                            onClick={() => toggleReaction(m.id, em)}
+                                          >
+                                            <span className="text-lg leading-none transform hover:scale-125 transition-transform">{em}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                      <DropdownMenuSeparator className="bg-neutral-200/50" />
+                                      <DropdownMenuItem onClick={() => setMenuOpenId(null)}>Close</DropdownMenuItem>
+                                    </>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
-                          ))}
+                            {isMine && (
+                              <Avatar className="h-8 w-8 ring-2 ring-teal-100 dark:ring-teal-900 shadow-sm">
+                                <AvatarImage src={selfProfile?.avatar_url || undefined} alt={selfProfile?.display_name || 'You'} />
+                                <AvatarFallback className="bg-teal-100 text-teal-700 font-medium">{(selfProfile?.display_name || 'You').charAt(0)}</AvatarFallback>
+                              </Avatar>
+                            )}
+                          </div>
+                          {/* Reactions bar */}
+                          {reactions[m.id] && (
+                            <div className={cn("mt-1 flex gap-1", isMine ? "justify-end pr-10" : "justify-start pl-10")}>
+                              {Object.entries(reactions[m.id]).filter(([, users]) => users.length > 0).map(([emoji, users]) => (
+                                <div key={emoji} className={cn(
+                                  "px-2 py-0.5 rounded-full text-xs border shadow-sm backdrop-blur-md animate-in scale-in duration-200",
+                                  isMine ? "bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-200/50" : "bg-white/50 dark:bg-black/30 text-neutral-700 dark:text-neutral-300 border-white/30"
+                                )}>
+                                  <span className="mr-1 align-middle">{emoji}</span>
+                                  <span className="align-middle font-medium">{users.length}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-                </AnimatePresence>
-                {/* Typing indicator */}
-                {isTyping && (
-                  <div className="flex justify-start">
-                    <div className="max-w-[72%] rounded-2xl px-3 py-2 bg-neutral-100 dark:bg-neutral-800 animate-in slide-in-from-bottom-2 duration-300">
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce"></div>
-                        <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                        <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      );
+                    })}
+                  </AnimatePresence>
+                  {/* Typing indicator */}
+                  {isTyping && (
+                    <div className="flex justify-start">
+                      <div className="max-w-[72%] rounded-2xl px-3 py-2 bg-neutral-100 dark:bg-neutral-800 animate-in slide-in-from-bottom-2 duration-300">
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce"></div>
+                          <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                          <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-                
-                {/* Scroll anchor */}
-                <div ref={messagesEndRef} />
+                  )}
+
+                  {/* Scroll anchor */}
+                  <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
 
               {/* Composer - sticky */}
-              <div className="sticky bottom-0 z-10 bg-white/90 dark:bg-black/50 backdrop-blur-md border-t border-neutral-200 dark:border-neutral-800 p-3">
-                <div className="flex items-end gap-2 max-h-32">
-                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" onClick={() => fileInputRef.current?.click()} aria-label="Attach">
-                    <Paperclip size={18} />
-                  </button>
-                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Emoji"><Smile size={18} /></button>
-                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Image"><ImageIcon size={18} /></button>
-                  <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Mic"><Mic size={18} /></button>
-                  <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])} />
-                   <TextareaAutosize
-                    value={draft}
-                    onChange={(e) => {
-                      setDraft(e.target.value);
-                      sendTyping();
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        if (draft.trim()) {
-                          sendMessage();
+              <div className="sticky bottom-0 z-20 p-4">
+                <div className="glass-panel rounded-2xl p-2 shadow-2xl border-white/40 dark:border-white/10 relative overflow-hidden backdrop-blur-xl">
+                  {/* Input Glow Effect */}
+                  <div className="absolute -inset-1 bg-gradient-to-r from-teal-500/20 via-cyan-500/20 to-emerald-500/20 blur-xl opacity-30 group-focus-within:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                  <div className="relative flex items-end gap-2 max-h-32">
+                    <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" onClick={() => fileInputRef.current?.click()} aria-label="Attach">
+                      <Paperclip size={18} />
+                    </button>
+                    <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Emoji"><Smile size={18} /></button>
+                    <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Image"><ImageIcon size={18} /></button>
+                    <button className="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all duration-200 hover:scale-110" aria-label="Mic"><Mic size={18} /></button>
+                    <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])} />
+                    <TextareaAutosize
+                      value={draft}
+                      onChange={(e) => {
+                        setDraft(e.target.value);
+                        sendTyping();
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (draft.trim()) {
+                            sendMessage();
+                          }
                         }
-                      }
-                    }}
-                    minRows={1}
-                    maxRows={3}
-                     className="flex-1 resize-none rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--brand)] focus:shadow-md focus-ring"
-                    placeholder="Write something.. (Enter to send, Shift+Enter for new line)"
-                  />
-                  <Button 
-                    onClick={sendMessage} 
-                    disabled={!draft.trim() || uploading || sendingMessage} 
-                    className="h-10 px-4 rounded-2xl bg-[var(--brand)] hover:bg-[var(--brand-600)] text-white transition-all duration-300 hover:scale-105 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 disabled:shadow-none"
-                  >
-                     <motion.div
-                       initial={{ scale: 1 }}
-                       animate={sendingMessage ? { scale: 0.9, opacity: 0.7 } : { scale: 1, opacity: 1 }}
-                       transition={{ duration: 0.15 }}
-                     >
-                       {sendingMessage ? (
-                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                       ) : (
-                         <Send size={16} />
-                       )}
-                     </motion.div>
-                  </Button>
+                      }}
+                      minRows={1}
+                      maxRows={3}
+                      className="flex-1 resize-none rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--brand)] focus:shadow-md focus-ring"
+                      placeholder="Write something.. (Enter to send, Shift+Enter for new line)"
+                    />
+                    <Button
+                      onClick={sendMessage}
+                      disabled={!draft.trim() || uploading || sendingMessage}
+                      className="h-10 px-4 rounded-2xl bg-[var(--brand)] hover:bg-[var(--brand-600)] text-white transition-all duration-300 hover:scale-105 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 disabled:shadow-none"
+                    >
+                      <motion.div
+                        initial={{ scale: 1 }}
+                        animate={sendingMessage ? { scale: 0.9, opacity: 0.7 } : { scale: 1, opacity: 1 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        {sendingMessage ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Send size={16} />
+                        )}
+                      </motion.div>
+                    </Button>
+                  </div>
+                  <TypingIndicator visible={typingUserIds.size > 0} />
                 </div>
-                <TypingIndicator visible={typingUserIds.size > 0} />
               </div>
             </>
           ) : (
@@ -689,14 +703,14 @@ export default function ChatsShell() {
         {/* Details panel (toggle) - fixed positioning */}
         <aside
           className={cn(
-            "hidden xl:flex flex-col bg-white/60 dark:bg-black/30 backdrop-blur transition-all duration-300 overflow-hidden fixed right-0 top-0 h-full z-20",
+            "hidden xl:flex flex-col glass-panel border-l-0 overflow-hidden fixed right-0 top-0 h-full z-30 depth-shadow-left transition-transform duration-300",
             showDetails
-              ? "w-[320px] border-l border-neutral-200 dark:border-neutral-800 opacity-100"
-              : "w-0 border-0 opacity-0 pointer-events-none"
+              ? "translate-x-0 w-[320px] border-l border-white/20 dark:border-white/10"
+              : "translate-x-full w-[320px] border-none"
           )}
         >
           {/* Header */}
-          <div className="bg-white/80 dark:bg-black/40 backdrop-blur-sm border-b border-neutral-200 dark:border-neutral-800 p-4">
+          <div className="glass-panel border-b-0 p-4">
             <div className="flex items-center gap-3">
               <Avatar>
                 <AvatarImage src={peerProfile?.avatar_url || undefined} alt={peerProfile?.display_name || peerProfile?.email || 'User'} />
@@ -731,14 +745,14 @@ export default function ChatsShell() {
                       <div key={m.id} className="aspect-square rounded-lg overflow-hidden bg-neutral-200 dark:bg-neutral-800 transition-all duration-200 hover:scale-105 cursor-pointer">
                         {m.file_url?.match(/\.(png|jpe?g|gif|webp)$/i) ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img 
-                            src={m.file_url} 
-                            alt={m.file_name || "image"} 
+                          <img
+                            src={m.file_url}
+                            alt={m.file_name || "image"}
                             className="w-full h-full object-cover"
                             onClick={() => window.open(m.file_url!, '_blank')}
                           />
                         ) : (
-                          <div 
+                          <div
                             className="w-full h-full flex flex-col items-center justify-center p-2 hover:bg-neutral-300 dark:hover:bg-neutral-700"
                             onClick={() => window.open(m.file_url!, '_blank')}
                           >

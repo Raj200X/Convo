@@ -1,4 +1,4 @@
--- Supabase SQL schema for Campus Chat
+-- Supabase SQL schema for Convo
 
 -- Profiles
 create table if not exists public.profiles (
@@ -13,7 +13,15 @@ create table if not exists public.profiles (
 );
 
 -- Conversations (DMs or Group wrapper)
-create type if not exists public.conversation_type as enum ('direct','group');
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'conversation_type' AND typnamespace = 'public'::regnamespace
+  ) THEN
+    CREATE TYPE public.conversation_type AS ENUM ('direct', 'group');
+  END IF;
+END
+$$;
 
 create table if not exists public.conversations (
   id uuid primary key default gen_random_uuid(),
@@ -47,7 +55,15 @@ alter table public.conversations
   foreign key (group_id) references public.groups(id) on delete cascade;
 
 -- Messages
-create type if not exists public.message_kind as enum ('text', 'image', 'file');
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'message_kind' AND typnamespace = 'public'::regnamespace
+  ) THEN
+    CREATE TYPE public.message_kind AS ENUM ('text', 'image', 'file');
+  END IF;
+END
+$$;
 
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),

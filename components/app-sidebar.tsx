@@ -1,12 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { 
-  MessageSquare, 
-  Users, 
-  Users2, 
-  Settings, 
-  LogOut, 
+import {
+  MessageSquare,
+  Users,
+  Users2,
+  Settings,
+  LogOut,
   Search,
   Plus,
   Phone,
@@ -102,15 +102,15 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
   const { isMobile, setOpen } = useSidebar()
   const [activeItem, setActiveItem] = React.useState(chatData.navMain[0])
   const supabase = React.useMemo(() => supabaseBrowser(), [])
-  const [directChats, setDirectChats] = React.useState<Array<{id:string; name:string; email:string; unread:number; avatar:string|null; lastMessage?:string; time?:string;}>>([])
-  const [groupChats, setGroupChats] = React.useState<Array<{id:string; name:string; email:string; unread:number; avatar:string|null; lastMessage?:string; time?:string;}>>([])
+  const [directChats, setDirectChats] = React.useState<Array<{ id: string; name: string; email: string; unread: number; avatar: string | null; lastMessage?: string; time?: string; }>>([])
+  const [groupChats, setGroupChats] = React.useState<Array<{ id: string; name: string; email: string; unread: number; avatar: string | null; lastMessage?: string; time?: string; }>>([])
   const [searchQuery, setSearchQuery] = React.useState("")
   const [userId, setUserId] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<'personal' | 'groups'>('personal')
-  const [people, setPeople] = React.useState<Array<{id:string; email:string; display_name:string|null; avatar_url:string|null}>>([])
+  const [people, setPeople] = React.useState<Array<{ id: string; email: string; display_name: string | null; avatar_url: string | null }>>([])
 
-  React.useEffect(()=>{
-    (async()=>{
+  React.useEffect(() => {
+    (async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setUserId(user?.id ?? null)
       if (!user) return
@@ -120,33 +120,33 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
         .select('conversation_id, conversations(id,type), profiles:profiles!inner(id,email,display_name)')
         .eq('user_id', user.id)
 
-      const convIds = (parts||[]).map((p:any)=>p.conversation_id)
-      if (convIds.length){
+      const convIds = (parts || []).map((p: any) => p.conversation_id)
+      if (convIds.length) {
         // Fetch conversations to distinguish types and groups
         const { data: convs } = await supabase
           .from('conversations')
           .select('id,type,group_id')
           .in('id', convIds)
 
-        const directIds = (convs||[]).filter((c:any)=>c.type==='direct').map((c:any)=>c.id)
+        const directIds = (convs || []).filter((c: any) => c.type === 'direct').map((c: any) => c.id)
         const groupMap: Record<string, any> = {}
-        const groupIds = (convs||[]).filter((c:any)=>c.type==='group' && c.group_id).map((c:any)=>c.group_id)
-        if (groupIds.length){
+        const groupIds = (convs || []).filter((c: any) => c.type === 'group' && c.group_id).map((c: any) => c.group_id)
+        if (groupIds.length) {
           const { data: groups } = await supabase.from('groups').select('id,name,image_url').in('id', groupIds)
-          ;(groups||[]).forEach((g:any)=>{ groupMap[g.id] = g })
+            ; (groups || []).forEach((g: any) => { groupMap[g.id] = g })
         }
 
         // resolve display names by finding the other participant for directs
-        let directItems: Array<{id:string; name:string; email:string; avatar:string|null; unread:number}> = []
-        if (directIds.length){
+        let directItems: Array<{ id: string; name: string; email: string; avatar: string | null; unread: number }> = []
+        if (directIds.length) {
           const { data: others } = await supabase
             .from('conversation_participants')
             .select('conversation_id, user_id, profiles:profiles(email, display_name, avatar_url)')
             .in('conversation_id', directIds)
           const byConv: Record<string, any[]> = {}
-          ;(others||[]).forEach((r:any)=>{ (byConv[r.conversation_id] ||= []).push(r) })
-          directItems = Object.entries(byConv).map(([cid, rows])=>{
-            const other = rows.find((r:any)=> r.user_id !== user.id)
+            ; (others || []).forEach((r: any) => { (byConv[r.conversation_id] ||= []).push(r) })
+          directItems = Object.entries(byConv).map(([cid, rows]) => {
+            const other = rows.find((r: any) => r.user_id !== user.id)
             return {
               id: cid,
               name: other?.profiles?.display_name || other?.profiles?.email || '',
@@ -158,47 +158,47 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
         }
 
         // add groups
-        const groupItems: Array<{id:string; name:string; email:string; avatar:string|null; unread:number}> = []
-        ;(convs||[]).filter((c:any)=>c.type==='group').forEach((c:any)=>{
-          const g = groupMap[c.group_id]
-          groupItems.push({ id: c.id, name: g?.name || 'Group', email: '', avatar: g?.image_url || null, unread: 0 })
-        })
+        const groupItems: Array<{ id: string; name: string; email: string; avatar: string | null; unread: number }> = []
+          ; (convs || []).filter((c: any) => c.type === 'group').forEach((c: any) => {
+            const g = groupMap[c.group_id]
+            groupItems.push({ id: c.id, name: g?.name || 'Group', email: '', avatar: g?.image_url || null, unread: 0 })
+          })
 
         setDirectChats(directItems)
         setGroupChats(groupItems)
       }
     })()
-  },[supabase])
+  }, [supabase])
 
-  React.useEffect(()=>{
-    const t = setTimeout(async ()=>{
+  React.useEffect(() => {
+    const t = setTimeout(async () => {
       const q = searchQuery.trim()
-      if (q.length < 2){ setPeople([]); return }
+      if (q.length < 2) { setPeople([]); return }
       const { data } = await supabase
         .from('profiles')
         .select('id,email,display_name,avatar_url')
         .or(`email.ilike.%${q}%,display_name.ilike.%${q}%`)
         .limit(8)
-      setPeople((data||[]) as any)
+      setPeople((data || []) as any)
     }, 300)
-    return ()=>clearTimeout(t)
-  },[searchQuery, supabase])
+    return () => clearTimeout(t)
+  }, [searchQuery, supabase])
 
-  async function startDirectWith(person:{id:string; email:string; display_name:string|null; avatar_url:string|null}){
+  async function startDirectWith(person: { id: string; email: string; display_name: string | null; avatar_url: string | null }) {
     if (!userId) return
     // find existing
     const { data: my } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', userId)
-    const ids = (my||[]).map((r:any)=>r.conversation_id)
-    if (ids.length){
+    const ids = (my || []).map((r: any) => r.conversation_id)
+    if (ids.length) {
       const { data: overlap } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
         .eq('user_id', person.id)
         .in('conversation_id', ids)
-      if ((overlap||[]).length){
+      if ((overlap || []).length) {
         const cid = overlap![0].conversation_id as string
         localStorage.setItem('activeConversationId', cid)
-        try { onConversationSelect?.(cid) } catch {}
+        try { onConversationSelect?.(cid) } catch { }
         return
       }
     }
@@ -211,15 +211,15 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
     ])
     setDirectChats(prev => [{ id: conv.id, name: person.display_name || person.email, email: person.email, avatar: person.avatar_url, unread: 0 }, ...prev])
     localStorage.setItem('activeConversationId', conv.id)
-    try { onConversationSelect?.(conv.id) } catch {}
+    try { onConversationSelect?.(conv.id) } catch { }
   }
 
-  async function createGroup(){
+  async function createGroup() {
     if (!userId) return
     const name = window.prompt('Group name')?.trim()
     if (!name) return
     const emailsRaw = window.prompt('Add members by email (comma separated)') || ''
-    const emails = emailsRaw.split(',').map(e=>e.trim()).filter(Boolean)
+    const emails = emailsRaw.split(',').map(e => e.trim()).filter(Boolean)
     const { data: grp } = await supabase.from('groups').insert({ name, created_by: userId }).select('id,name,image_url').single()
     if (!grp) return
     const { data: conv } = await supabase.from('conversations').insert({ type: 'group', group_id: grp.id, created_by: userId }).select('id').single()
@@ -227,18 +227,18 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
     const { data: found } = await supabase.from('profiles').select('id,email').in('email', emails)
     const rows = [
       { conversation_id: conv.id, user_id: userId, role: 'admin' },
-      ...((found||[]) as any[]).map(u=>({ conversation_id: conv.id, user_id: u.id, role: 'member' }))
+      ...((found || []) as any[]).map(u => ({ conversation_id: conv.id, user_id: u.id, role: 'member' }))
     ]
     await supabase.from('conversation_participants').insert(rows)
     setGroupChats(prev => [{ id: conv.id, name, email: '', avatar: grp.image_url || null, unread: 0 }, ...prev])
-    try { localStorage.setItem('activeConversationId', conv.id); onConversationSelect?.(conv.id) } catch {}
+    try { localStorage.setItem('activeConversationId', conv.id); onConversationSelect?.(conv.id) } catch { }
   }
 
   const filteredDirectChats = directChats.filter(conv =>
     conv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     conv.email.toLowerCase().includes(searchQuery.toLowerCase())
   )
-  
+
   const filteredGroupChats = groupChats.filter(conv =>
     conv.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
@@ -248,27 +248,24 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
       {/* Icon sidebar - always visible */}
       <Sidebar
         collapsible="icon"
-        className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r"
+        className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r bg-transparent glass-panel"
       >
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild className="md:h-8 md:p-0">
                 <a href="#">
-                  <div className="bg-[var(--brand)] text-white flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
+                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img 
-                      src="/lpu-logo.png" 
-                      alt="LPU"
-                      width={28}
-                      height={28}
-                      className="rounded-md object-cover"
+                    <img
+                      src="/logo.png"
+                      alt="Convo"
+                      width={32}
+                      height={32}
+                      className="object-cover"
                     />
                   </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">Campus</span>
-                    <span className="truncate text-xs">Chat</span>
-                  </div>
+                  <span className="truncate font-medium">Convo</span>
                 </a>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -307,19 +304,19 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
               <ThemeToggle />
             </div>
             <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    tooltip={{
-                      children: "Profile",
-                      hidden: false,
-                    }}
-                    className="px-2.5 md:px-2"
-                    onClick={() => (window.location.href = "/settings")}
-                  >
-                    <User />
-                    <span>Profile</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip={{
+                    children: "Profile",
+                    hidden: false,
+                  }}
+                  className="px-2.5 md:px-2"
+                  onClick={() => (window.location.href = "/settings")}
+                >
+                  <User />
+                  <span>Profile</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip={{
@@ -352,7 +349,7 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
       </Sidebar>
 
       {/* Main sidebar - collapsible */}
-      <Sidebar collapsible="icon" className="hidden flex-1 md:flex">
+      <Sidebar collapsible="icon" className="hidden flex-1 md:flex bg-transparent glass-panel">
         <SidebarHeader className="gap-3.5 border-b p-4">
           <div className="flex w-full items-center justify-between">
             <div className="text-foreground text-base font-medium">
@@ -363,8 +360,8 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
               <Switch className="shadow-none" />
             </Label>
           </div>
-          <SidebarInput 
-            placeholder="Search by name or email..." 
+          <SidebarInput
+            placeholder="Search by name or email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -383,34 +380,33 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                   New Group
                 </Button>
               </div>
-              
-               {/* Search results */}
-               {people.length > 0 && (
-                 <div className="px-4">
-                   <Label className="text-xs text-muted-foreground px-2 mb-2 block">Start new chat</Label>
-                   <div className="space-y-1 mb-4">
-                     {people.map((p)=> (
-                       <div key={p.id} className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer" onClick={()=>startDirectWith(p)}>
-                         <Avatar className="h-8 w-8"><AvatarImage src={p.avatar_url||undefined} /><AvatarFallback>{(p.display_name||p.email||'?').charAt(0)}</AvatarFallback></Avatar>
-                         <div className="min-w-0">
-                           <div className="text-sm truncate">{p.display_name || p.email}</div>
-                           {p.display_name && <div className="text-xs text-muted-foreground truncate">{p.email}</div>}
-                         </div>
-                       </div>
-                     ))}
-                   </div>
-                 </div>
-               )}
+
+              {/* Search results */}
+              {people.length > 0 && (
+                <div className="px-4">
+                  <Label className="text-xs text-muted-foreground px-2 mb-2 block">Start new chat</Label>
+                  <div className="space-y-1 mb-4">
+                    {people.map((p) => (
+                      <div key={p.id} className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer" onClick={() => startDirectWith(p)}>
+                        <Avatar className="h-8 w-8"><AvatarImage src={p.avatar_url || undefined} /><AvatarFallback>{(p.display_name || p.email || '?').charAt(0)}</AvatarFallback></Avatar>
+                        <div className="min-w-0">
+                          <div className="text-sm truncate">{p.display_name || p.email}</div>
+                          {p.display_name && <div className="text-xs text-muted-foreground truncate">{p.email}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Horizontal Tabs */}
               <div className="px-4 pb-2">
                 <div className="flex border-b border-border mb-4">
                   <button
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
-                      activeTab === 'personal'
-                        ? 'border-[var(--brand)] text-[var(--brand)]'
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2 ${activeTab === 'personal'
+                      ? 'border-[var(--brand)] text-[var(--brand)]'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                      }`}
                     onClick={() => setActiveTab('personal')}
                   >
                     <Users className="w-4 h-4" />
@@ -422,11 +418,10 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                     )}
                   </button>
                   <button
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
-                      activeTab === 'groups'
-                        ? 'border-[var(--brand)] text-[var(--brand)]'
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2 ${activeTab === 'groups'
+                      ? 'border-[var(--brand)] text-[var(--brand)]'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                      }`}
                     onClick={() => setActiveTab('groups')}
                   >
                     <Users2 className="w-4 h-4" />
@@ -448,17 +443,17 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                           key={conv.id}
                           className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer transition-colors"
                           onClick={() => {
-                            try { localStorage.setItem('activeConversationId', conv.id) } catch {}
-                            try { onConversationSelect?.(conv.id) } catch {}
+                            try { localStorage.setItem('activeConversationId', conv.id) } catch { }
+                            try { onConversationSelect?.(conv.id) } catch { }
                             if (isMobile) setOpen(false)
                           }}
                         >
-                            <Avatar className="h-10 w-10">
-                              <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
-                              <AvatarFallback className="rounded-lg">
-                                {(conv.name || conv.email || "?").charAt(0)}
-                              </AvatarFallback>
-                            </Avatar>
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
+                            <AvatarFallback className="rounded-lg">
+                              {(conv.name || conv.email || "?").charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                               <div className="text-sm font-medium truncate">{conv.name || conv.email || ''}</div>
@@ -473,8 +468,8 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                               {conv.unread}
                             </div>
                           )}
-                      </div>
-                    ))
+                        </div>
+                      ))
                     ) : (
                       <div className="text-xs text-muted-foreground px-2 py-8 text-center">
                         No personal chats yet
@@ -487,17 +482,17 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                           key={conv.id}
                           className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-lg p-3 cursor-pointer transition-colors"
                           onClick={() => {
-                            try { localStorage.setItem('activeConversationId', conv.id) } catch {}
-                            try { onConversationSelect?.(conv.id) } catch {}
+                            try { localStorage.setItem('activeConversationId', conv.id) } catch { }
+                            try { onConversationSelect?.(conv.id) } catch { }
                             if (isMobile) setOpen(false)
                           }}
                         >
-                            <Avatar className="h-10 w-10">
-                              <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
-                              <AvatarFallback className="rounded-lg bg-[var(--brand)] text-white">
-                                <Users2 className="w-5 h-5" />
-                              </AvatarFallback>
-                            </Avatar>
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={conv.avatar || undefined} alt={conv.name} />
+                            <AvatarFallback className="rounded-lg bg-[var(--brand)] text-white">
+                              <Users2 className="w-5 h-5" />
+                            </AvatarFallback>
+                          </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                               <div className="text-sm font-medium truncate">{conv.name}</div>
@@ -512,8 +507,8 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                               {conv.unread}
                             </div>
                           )}
-                      </div>
-                    ))
+                        </div>
+                      ))
                     ) : (
                       <div className="text-xs text-muted-foreground px-2 py-8 text-center">
                         No groups yet
@@ -521,7 +516,7 @@ export function AppSidebar({ onConversationSelect }: { onConversationSelect?: (i
                     )
                   )}
                 </div>
-                  </div>
+              </div>
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>

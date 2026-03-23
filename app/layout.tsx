@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: process.env.NEXT_PUBLIC_APP_NAME || "Campus Chat",
+  title: process.env.NEXT_PUBLIC_APP_NAME || "Convo",
   description: "Real-time campus messaging",
 };
 

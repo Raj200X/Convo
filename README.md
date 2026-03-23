@@ -1,4 +1,4 @@
-# Campus Chat
+# Convo
 
 Next.js + Supabase real-time messaging app for college students.
 

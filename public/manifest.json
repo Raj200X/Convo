@@ -1,10 +1,9 @@
 {
-  "name": "Campus Chat",
-  "short_name": "CampusChat",
+  "name": "Convo",
+  "short_name": "Convo",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#f58220",
+  "theme_color": "#14b8a6",
   "icons": []
 }
-
